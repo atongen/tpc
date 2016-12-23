@@ -26,7 +26,6 @@ var (
 	slackIconEmoji string
 )
 
-//HashTag            string
 const (
 	configTmpl = `{{.Name}}:
 	listen: {{.Ip}}:{{.Port}}
