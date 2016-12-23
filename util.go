@@ -1,4 +1,4 @@
-package tpc
+package main
 
 import (
 	"crypto/md5"

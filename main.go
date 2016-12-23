@@ -3,21 +3,23 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strings"
-
-	"github.com/DripEmail/tpc"
 )
 
 // flags
 var (
 	// process flags
-	sentinelsFlag = flag.String("sentinels", "", "CSV of host:port to redis sentinels")
-	logFlag       = flag.String("log", "", "Path to log file, will write to STDOUT if empty")
-	outFlag       = flag.String("out", "", "File to write configuration, will write to STDOUT if empty")
-	cmdFlag       = flag.String("cmd", "killall -USR1 nutcracker", "Command to execute after master failover")
-	waitFlag      = flag.Int("wait", 60, "Minimum number of seconds to wait between cmd execution")
+	sentinelsFlag     = flag.String("sentinels", "", "CSV of host:port to redis sentinels")
+	logFlag           = flag.String("log", "", "Path to log file, will write to STDOUT if empty")
+	outFlag           = flag.String("out", "", "File to write configuration, will write to STDOUT if empty")
+	cmdFlag           = flag.String("cmd", "killall -USR1 nutcracker", "Command to execute after master failover")
+	waitFlag          = flag.Int("wait", 60, "Minimum number of seconds to wait between cmd execution")
+	masterPatternFlag = flag.String("master_pattern", "", "If provided, will filter master names from sentinel based on pattern")
+	tokenFlag         = flag.String("token", "", "Slack API token used for notifications")
+	channelFlag       = flag.String("channel", "#incidents", "Slack channel for notifications")
+	usernameFlag      = flag.String("username", "", "Slack username for notifications")
+	iconEmojiFlag     = flag.String("icon_emoji", "", "Slack icon emoji for notifications")
 
 	// twemproxy flags
 	nameFlag               = flag.String("name", "redis", "Name of redis pool for twemproxy config")
@@ -41,23 +43,17 @@ var (
 func main() {
 	flag.Parse()
 
-	var l *log.Logger
-
-	// setup log
-	if *logFlag == "" {
-		l = log.New(os.Stdout, "", log.LstdFlags)
-	} else {
-		logFile, err := os.OpenFile(*logFlag, os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			fmt.Printf("Error opening log file: %s\n", err)
-			os.Exit(1)
-		}
-		defer logFile.Close()
-
-		l = log.New(logFile, "", log.LstdFlags)
+	err := SetLogger(*logFlag)
+	if err != nil {
+		fmt.Printf("Error opening log file: %s\n", err)
+		os.Exit(1)
 	}
 
-	tpc.SetLogger(l)
+	err = SetSlack(*tokenFlag, *channelFlag, *usernameFlag, *iconEmojiFlag)
+	if err != nil {
+		fmt.Printf("Error setting up slack client: %s\n", err)
+		os.Exit(1)
+	}
 
 	// get sentinel configuration
 	splitAddrs := strings.Split(*sentinelsFlag, ",")
@@ -69,17 +65,19 @@ func main() {
 	}
 
 	if len(sentinelAddrs) == 0 {
-		l.Fatal("At least one sentinel address is required.")
+		fmt.Println("At least one sentinel address is required.")
+		os.Exit(1)
 	}
 
-	config := tpc.Config{
-		Out:     *outFlag,
-		Cmd:     *cmdFlag,
-		Wait:    *waitFlag,
-		Waiting: false,
-		Wanted:  false,
-		WriteCh: make(chan bool),
-		DoneCh:  make(chan bool),
+	config := Config{
+		Out:           *outFlag,
+		Cmd:           *cmdFlag,
+		MasterPattern: *masterPatternFlag,
+		Wait:          *waitFlag,
+		Waiting:       false,
+		Wanted:        false,
+		WriteCh:       make(chan bool),
+		DoneCh:        make(chan bool),
 
 		Name:               *nameFlag,
 		Ip:                 *ipFlag,
@@ -99,6 +97,5 @@ func main() {
 		ServerFailureLimit: *serverFailureLimitFlag,
 	}
 
-	tpc.ListenCluster(sentinelAddrs, &config)
-	l.Println("Goodbye!")
+	ListenCluster(sentinelAddrs, &config)
 }

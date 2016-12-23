@@ -1,4 +1,4 @@
-package tpc
+package main
 
 import (
 	"errors"
@@ -13,11 +13,16 @@ import (
 	"time"
 
 	"github.com/garyburd/redigo/redis"
+	"github.com/nlopes/slack"
 )
 
 var (
-	tmpl   = template.Must(template.New("config").Parse(configTmpl))
-	logger *log.Logger
+	tmpl           = template.Must(template.New("config").Parse(configTmpl))
+	logger         *log.Logger
+	slackClient    *slack.Client
+	slackChannel   string
+	slackUsername  string
+	slackIconEmoji string
 )
 
 //HashTag            string
@@ -69,13 +74,14 @@ func (s Servers) Swap(i, j int) {
 }
 
 type Config struct {
-	Out     string
-	Cmd     string
-	Wait    int
-	Waiting bool
-	Wanted  bool
-	WriteCh chan bool
-	DoneCh  chan bool
+	Out           string
+	Cmd           string
+	MasterPattern string
+	Wait          int
+	Waiting       bool
+	Wanted        bool
+	WriteCh       chan bool
+	DoneCh        chan bool
 
 	Name               string
 	Ip                 string
@@ -108,21 +114,21 @@ type InstanceDetails struct {
 }
 
 func (i *InstanceDetails) String() string {
-	if i.InstanceType == "slave" {
-		if i.Description != "" {
-			return fmt.Sprintf("slave %s %s:%s, master: %s %s:%s (%s)",
-				i.Name, i.Ip, i.Port, i.MasterName, i.MasterIp, i.MasterPort, i.Description)
-		} else {
-			return fmt.Sprintf("slave %s %s:%s, master: %s %s:%s",
-				i.Name, i.Ip, i.Port, i.MasterName, i.MasterIp, i.MasterPort)
-		}
-	} else {
+	if i.InstanceType == "master" {
 		if i.Description != "" {
 			return fmt.Sprintf("master %s %s:%s (%s)",
 				i.Name, i.Ip, i.Port, i.Description)
 		} else {
 			return fmt.Sprintf("master %s %s:%s",
 				i.Name, i.Ip, i.Port)
+		}
+	} else {
+		if i.Description != "" {
+			return fmt.Sprintf("%s %s %s:%s, master: %s %s:%s (%s)",
+				i.InstanceType, i.Name, i.Ip, i.Port, i.MasterName, i.MasterIp, i.MasterPort, i.Description)
+		} else {
+			return fmt.Sprintf("%s %s %s:%s, master: %s %s:%s",
+				i.InstanceType, i.Name, i.Ip, i.Port, i.MasterName, i.MasterIp, i.MasterPort)
 		}
 	}
 }
@@ -135,8 +141,65 @@ type SwitchMaster struct {
 	NewPort    string
 }
 
-func SetLogger(l *log.Logger) {
-	logger = l
+func (s *SwitchMaster) String() string {
+	return fmt.Sprintf("switch-master: %s, old: %s:%s, new: %s:%s",
+		s.MasterName, s.OldIp, s.OldPort, s.NewIp, s.NewPort)
+}
+
+func SetLogger(logPath string) error {
+	// setup log
+	if logPath == "" {
+		logger = log.New(os.Stdout, "", log.LstdFlags)
+	} else {
+		logFile, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			return err
+		}
+		logger = log.New(logFile, "", log.LstdFlags)
+	}
+	return nil
+}
+
+func SetSlack(token, channel, username, iconEmoji string) error {
+	if token == "" {
+		return nil
+	}
+
+	slackClient = slack.New(token)
+	slackClient.SetDebug(true)
+	_, err := slackClient.AuthTest()
+	if err != nil {
+		return err
+	}
+
+	slackChannel = channel
+	slackUsername = username
+	slackIconEmoji = iconEmoji
+
+	slack.SetLogger(logger)
+
+	return err
+}
+
+func Alertf(format string, a ...interface{}) (int, error) {
+	if slackClient != nil {
+		msg := fmt.Sprintf(format, a)
+		params := slack.NewPostMessageParameters()
+		if slackUsername != "" {
+			params.Username = slackUsername
+		}
+		if slackIconEmoji != "" {
+			params.IconEmoji = slackIconEmoji
+		}
+		_, _, err := slackClient.PostMessage(slackChannel, msg, params)
+		if err != nil {
+			logger.Printf("Error sending slack alert: %s", err)
+			return 0, err
+		}
+		return len(msg), nil
+	}
+
+	return 0, nil
 }
 
 func ServerFromMap(serverData map[string]string) (*Server, error) {
@@ -246,6 +309,10 @@ func DoConfigUpdate(config *Config) error {
 		}
 	}()
 
+	if len(config.Servers) == 0 {
+		return errors.New("Server list is empty")
+	}
+
 	var (
 		newMd5sum string
 		oldMd5sum string
@@ -272,15 +339,12 @@ func DoConfigUpdate(config *Config) error {
 	}
 
 	if newMd5sum == oldMd5sum {
-		logger.Println("Not executing command because outfile has not changed")
+		err = errors.New("Not executing command because outfile has not changed")
 	} else {
 		err = ExecCmd(config)
-		if err != nil {
-			return err
-		}
 	}
 
-	return nil
+	return err
 }
 
 func ConfigWriter(config *Config) {
@@ -307,6 +371,7 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 	default:
 		logger.Printf("unhandled message '%s': %s\n", msg.Channel, msg.Data)
 	case "+switch-master":
+		Alertf("%s %s: %s %s", os.Args[1:], config.Name, msg.Channel, msg.Data)
 		switchMaster, err := ParseSwitchMaster(string(msg.Data))
 		if err != nil {
 			logger.Printf("Error parsing +switch-master msg: %s\n", err)
@@ -335,6 +400,7 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 			HandlePosRoleChange(instanceDetails, config)
 		}
 	case "-sdown":
+		Alertf("%s %s: %s %s", os.Args[1:], config.Name, msg.Channel, msg.Data)
 		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
 		if err != nil {
 			logger.Printf("Error parsing -sdown msg: %s\n", err)
@@ -349,6 +415,7 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 			HandlePosSubjectivelyDown(instanceDetails, config)
 		}
 	case "-odown":
+		Alertf("%s %s: %s %s", os.Args[1:], config.Name, msg.Channel, msg.Data)
 		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
 		if err != nil {
 			logger.Printf("Error parsing -odown msg: %s\n", err)
@@ -367,13 +434,17 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 
 func HandleSwitchMaster(switchMaster *SwitchMaster, config *Config) {
 	newServers := []*Server{}
-	changes := false
 	for _, server := range config.Servers {
+		if config.MasterPattern != "" && !strings.Contains(switchMaster.MasterName, config.MasterPattern) {
+			logger.Printf("Ignoring switch-master for %s because it does not match master_pattern",
+				switchMaster.MasterName)
+			continue
+		}
+
 		var newServer *Server
 		if server.Name == switchMaster.MasterName &&
 			server.Ip == switchMaster.OldIp &&
 			server.Port == switchMaster.OldPort {
-			changes = true
 			newServer = &Server{
 				Name: switchMaster.MasterName,
 				Ip:   switchMaster.NewIp,
@@ -385,10 +456,6 @@ func HandleSwitchMaster(switchMaster *SwitchMaster, config *Config) {
 			newServer = server
 		}
 		newServers = append(newServers, newServer)
-	}
-
-	if !changes {
-		return
 	}
 
 	config.Servers = newServers
@@ -520,7 +587,9 @@ func SetConfigServers(conn redis.Conn, config *Config) error {
 			return err
 		}
 
-		config.Servers = append(config.Servers, server)
+		if config.MasterPattern == "" || (strings.Contains(server.Name, config.MasterPattern)) {
+			config.Servers = append(config.Servers, server)
+		}
 	}
 
 	return nil
@@ -573,6 +642,8 @@ func Listen(addr string, config *Config) error {
 }
 
 func ListenCluster(addrs []string, config *Config) {
+	defer close(config.WriteCh)
+	defer close(config.DoneCh)
 	num := len(addrs)
 
 	retriesPerServer := 3
@@ -596,4 +667,6 @@ func ListenCluster(addrs []string, config *Config) {
 			time.Sleep(time.Second * 1)
 		}
 	}
+
+	logger.Println("Goodbye!")
 }

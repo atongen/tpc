@@ -1,4 +1,4 @@
-package tpc
+package main
 
 import "testing"
 
