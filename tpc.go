@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ import (
 var (
 	tmpl           = template.Must(template.New("config").Parse(configTmpl))
 	logger         *log.Logger
-	slackClient    *slack.Client
+	slackClient    SlackClient
 	slackChannel   string
 	slackUsername  string
 	slackIconEmoji string
@@ -146,6 +147,13 @@ func (s *SwitchMaster) String() string {
 		s.MasterName, s.OldIp, s.OldPort, s.NewIp, s.NewPort)
 }
 
+// Implement just the portion of the slack client api that we using
+// so we can mock this in tests
+type SlackClient interface {
+	AuthTest() (*slack.AuthTestResponse, error)
+	PostMessage(string, string, slack.PostMessageParameters) (string, string, error)
+}
+
 func SetLogger(logPath string) error {
 	// setup log
 	if logPath == "" {
@@ -165,25 +173,25 @@ func SetSlack(token, channel, username, iconEmoji string) error {
 		return nil
 	}
 
-	slackClient = slack.New(token)
-	slackClient.SetDebug(true)
-	_, err := slackClient.AuthTest()
+	slack.SetLogger(logger)
+	myClient := slack.New(token)
+	_, err := myClient.AuthTest()
 	if err != nil {
 		return err
 	}
 
+	slackClient = myClient
+
 	slackChannel = channel
 	slackUsername = username
 	slackIconEmoji = iconEmoji
-
-	slack.SetLogger(logger)
 
 	return err
 }
 
 func Alertf(format string, a ...interface{}) (int, error) {
 	if slackClient != nil {
-		msg := fmt.Sprintf(format, a)
+		msg := fmt.Sprintf(format, a...)
 		params := slack.NewPostMessageParameters()
 		if slackUsername != "" {
 			params.Username = slackUsername
@@ -200,6 +208,11 @@ func Alertf(format string, a ...interface{}) (int, error) {
 	}
 
 	return 0, nil
+}
+
+func PMessageAlert(config *Config, msg redis.PMessage) (int, error) {
+	appName := path.Base(os.Args[0])
+	return Alertf("%s %s: %s %s", appName, config.Name, msg.Channel, msg.Data)
 }
 
 func ServerFromMap(serverData map[string]string) (*Server, error) {
@@ -371,7 +384,7 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 	default:
 		logger.Printf("unhandled message '%s': %s\n", msg.Channel, msg.Data)
 	case "+switch-master":
-		Alertf("%s %s: %s %s", os.Args[1:], config.Name, msg.Channel, msg.Data)
+		PMessageAlert(config, msg)
 		switchMaster, err := ParseSwitchMaster(string(msg.Data))
 		if err != nil {
 			logger.Printf("Error parsing +switch-master msg: %s\n", err)
@@ -400,7 +413,7 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 			HandlePosRoleChange(instanceDetails, config)
 		}
 	case "-sdown":
-		Alertf("%s %s: %s %s", os.Args[1:], config.Name, msg.Channel, msg.Data)
+		PMessageAlert(config, msg)
 		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
 		if err != nil {
 			logger.Printf("Error parsing -sdown msg: %s\n", err)
@@ -415,7 +428,7 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 			HandlePosSubjectivelyDown(instanceDetails, config)
 		}
 	case "-odown":
-		Alertf("%s %s: %s %s", os.Args[1:], config.Name, msg.Channel, msg.Data)
+		PMessageAlert(config, msg)
 		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
 		if err != nil {
 			logger.Printf("Error parsing -odown msg: %s\n", err)
