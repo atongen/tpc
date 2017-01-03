@@ -1,10 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"io/ioutil"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/nlopes/slack"
+	"github.com/rafaeljusto/redigomock"
 )
 
 type TestSlackClient struct {
@@ -22,6 +28,58 @@ func (c *TestSlackClient) PostMessage(channel, text string, params slack.PostMes
 
 func NewTestSlackClient() SlackClient {
 	return &TestSlackClient{make([]string, 0)}
+}
+
+func NewTestConfig(t *testing.T) *Config {
+	tmpfile, err := ioutil.TempFile("", "tpc-out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Config{
+		Out:           tmpfile.Name(),
+		Cmd:           "echo mycmd",
+		MasterPattern: "",
+		Wait:          1,
+		Waiting:       false,
+		Wanted:        false,
+		WriteCh:       make(chan bool),
+		DoneCh:        make(chan bool),
+
+		Name:               "tpc_test",
+		Ip:                 "0.0.0.0",
+		Port:               9000,
+		Hash:               "fnv1a_64",
+		HashTag:            "",
+		Distribution:       "ketama",
+		Timeout:            400,
+		Backlog:            512,
+		RedisAuth:          "",
+		RedisDb:            0,
+		ClientConnections:  16384,
+		ServerConnections:  1,
+		Preconnect:         false,
+		AutoEjectHosts:     true,
+		ServerRetryTimeout: 30000,
+		ServerFailureLimit: 3,
+
+		Servers: []*Server{},
+	}
+}
+
+func ExpectResult(t *testing.T, result string, expect []string) {
+	for _, e := range expect {
+		if !strings.Contains(result, e) {
+			t.Fatalf("Expected result to contain '%s', but it did not:\n%s\n", e, result)
+		}
+	}
+}
+
+func NotExpectResult(t *testing.T, result string, expect []string) {
+	for _, e := range expect {
+		if strings.Contains(result, e) {
+			t.Fatalf("Did not expect result to contain '%s', but it did:\n%s\n", e, result)
+		}
+	}
 }
 
 func TestPMessageAlert(t *testing.T) {
@@ -72,4 +130,425 @@ func TestServerFromMap(t *testing.T) {
 	if node.Name != "node-1234" {
 		t.Errorf("NodeFromMap expected Name node-1234 but got %s\n", node.Name)
 	}
+}
+
+func TestWriteConfig(t *testing.T) {
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	defer os.Remove(config.Out)
+
+	config.Servers = append(config.Servers,
+		&Server{"ZZZ", "1.2.3.4", "8000"},
+		&Server{"AAA", "1.2.3.5", "8001"})
+
+	err := WriteConfig(config)
+	if err != nil {
+		t.Errorf("WriteConfig error: %s\n", err)
+	}
+
+	content, err := ioutil.ReadFile(config.Out)
+	if err != nil {
+		t.Errorf("Error reading config out file: %s\n", err)
+	}
+
+	expected := `tpc_test:
+    listen: 0.0.0.0:9000
+    hash: fnv1a_64
+    distribution: ketama
+    redis: true
+    preconnect: false
+    auto_eject_hosts: true
+    server_retry_timeout: 30000
+    server_failure_limit: 3
+    timeout: 400
+    backlog: 512
+    redis_db: 0
+    client_connections: 16384
+    server_connections: 1
+    servers:
+    - 1.2.3.5:8001:1 AAA
+    - 1.2.3.4:8000:1 ZZZ
+`
+
+	if string(content) != expected {
+		t.Errorf("WriteConfig expected '%s' but got '%s'\n", expected, content)
+	}
+
+	expect := []string{
+		"Writing to outfile: /tmp/tpc-out",
+	}
+
+	ExpectResult(t, out.String(), expect)
+}
+
+func TestExecCmd(t *testing.T) {
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	defer os.Remove(config.Out)
+
+	ExecCmd(config)
+
+	expect := []string{
+		"Running command: 'echo mycmd'",
+		"Command output: 'mycmd'",
+	}
+
+	ExpectResult(t, out.String(), expect)
+}
+
+func TestDoConfigUpdate(t *testing.T) {
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	defer os.Remove(config.Out)
+
+	config.Servers = append(config.Servers,
+		&Server{"ZZZ", "1.2.3.4", "8000"},
+		&Server{"AAA", "1.2.3.5", "8001"})
+
+	DoConfigUpdate(config)
+
+	if !config.Waiting {
+		t.Error("Expected config to be waiting after DoConfigUpdate")
+	}
+
+	expect := []string{
+		"Running command: 'echo mycmd'",
+		"Command output: 'mycmd'",
+	}
+
+	ExpectResult(t, out.String(), expect)
+}
+
+func TestDoConfigUpdateNoChange(t *testing.T) {
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	config.Wait = 0
+	defer os.Remove(config.Out)
+
+	config.Servers = append(config.Servers,
+		&Server{"ZZZ", "1.2.3.4", "8000"},
+		&Server{"AAA", "1.2.3.5", "8001"})
+
+	DoConfigUpdate(config)
+	DoConfigUpdate(config)
+
+	expect := []string{
+		"Not executing command because outfile has not changed",
+	}
+
+	ExpectResult(t, out.String(), expect)
+}
+
+func TestDoConfigUpdateWait(t *testing.T) {
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	defer os.Remove(config.Out)
+
+	config.Servers = append(config.Servers,
+		&Server{"ZZZ", "1.2.3.4", "8000"},
+		&Server{"AAA", "1.2.3.5", "8001"})
+
+	DoConfigUpdate(config)
+
+	time.Sleep(time.Second * time.Duration(config.Wait))
+
+	if config.Waiting {
+		t.Error("Expected config to not be waiting after DoConfigUpdate wait period")
+	}
+
+	expect := []string{
+		"Leaving config update wait period",
+	}
+
+	ExpectResult(t, out.String(), expect)
+}
+
+func TestDoConfigUpdateWant(t *testing.T) {
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	defer os.Remove(config.Out)
+
+	config.Servers = append(config.Servers,
+		&Server{"ZZZ", "1.2.3.4", "8000"},
+		&Server{"AAA", "1.2.3.5", "8001"})
+
+	go DoConfigUpdate(config)
+	DoConfigUpdate(config)
+
+	if !config.Wanted {
+		t.Error("Expected config to be wanting after second DoConfigUpdate")
+	}
+
+	<-config.WriteCh
+
+	if config.Wanted {
+		t.Error("Expected config to not be wanted after read from WriteCh")
+	}
+
+	expect := []string{
+		"Leaving config update wait period",
+	}
+
+	ExpectResult(t, out.String(), expect)
+}
+
+func TestParseSwitchMaster(t *testing.T) {
+	switchMasterStr := "node-01 1.2.3.4 8000 1.2.3.5 8001"
+	switchMaster, err := ParseSwitchMaster(switchMasterStr)
+
+	if err != nil {
+		t.Errorf("Error parsing SwitchMaster string: %s\n", err)
+	}
+
+	if switchMaster.MasterName != "node-01" ||
+		switchMaster.OldIp != "1.2.3.4" ||
+		switchMaster.OldPort != "8000" ||
+		switchMaster.NewIp != "1.2.3.5" ||
+		switchMaster.NewPort != "8001" {
+		t.Errorf("Invalid parsing of switch master data: '%s', got %+v\n", switchMasterStr, switchMaster)
+	}
+}
+
+func TestParseNonMasterInstanceDetails(t *testing.T) {
+	for _, tt := range []struct {
+		a string
+		r *InstanceDetails
+		e error
+	}{
+		{
+			"master node-01 1.2.3.4 8000 A Description",
+			&InstanceDetails{
+				"master",
+				"node-01",
+				"1.2.3.4",
+				"8000",
+				"",
+				"",
+				"",
+				"A Description",
+			},
+			nil,
+		},
+		{
+			"slave node-01 1.2.3.4 8000 @ node-02 1.2.3.5 8001 A Description",
+			&InstanceDetails{
+				"slave",
+				"node-01",
+				"1.2.3.4",
+				"8000",
+				"node-02",
+				"1.2.3.5",
+				"8001",
+				"A Description",
+			},
+			nil,
+		},
+		{
+			"sentinel node-01 1.2.3.4 8000 @ node-02 1.2.3.5 8001 A Description",
+			&InstanceDetails{
+				"sentinel",
+				"node-01",
+				"1.2.3.4",
+				"8000",
+				"node-02",
+				"1.2.3.5",
+				"8001",
+				"A Description",
+			},
+			nil,
+		},
+	} {
+		r, e := ParseInstanceDetails(tt.a)
+		if r.InstanceType != tt.r.InstanceType ||
+			r.Name != tt.r.Name ||
+			r.Ip != tt.r.Ip ||
+			r.Port != tt.r.Port ||
+			r.MasterName != tt.r.MasterName ||
+			r.MasterIp != tt.r.MasterIp ||
+			r.MasterPort != tt.r.MasterPort ||
+			r.Description != tt.r.Description ||
+			e != tt.e {
+			t.Errorf("ParseInstanceDetails('%s') => ('%+v', '%s'), want ('%+v', '%s')\n",
+				tt.a, r, e, tt.r, tt.e)
+		}
+	}
+}
+
+func TestHandleSwitchMaster(t *testing.T) {
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	defer os.Remove(config.Out)
+
+	config.Servers = append(config.Servers,
+		&Server{"node-01", "1.2.3.4", "8000"},
+		&Server{"node-02", "1.2.3.5", "8001"})
+
+	switchMaster := &SwitchMaster{
+		"node-01", "1.2.3.4", "8000", "1.2.3.6", "8002",
+	}
+
+	go func() {
+		<-config.WriteCh
+	}()
+
+	HandleSwitchMaster(switchMaster, config)
+
+	for i, server := range []*Server{
+		&Server{"node-01", "1.2.3.6", "8002"},
+		&Server{"node-02", "1.2.3.5", "8001"},
+	} {
+		if server.Name != config.Servers[i].Name ||
+			server.Ip != config.Servers[i].Ip ||
+			server.Port != config.Servers[i].Port {
+			t.Errorf("Expected server %d to be %+v, got %+v\n", i, server, config.Servers[i])
+		}
+	}
+
+	expect := []string{
+		"Replacing master node-01 1.2.3.4:8000 with 1.2.3.6:8002",
+	}
+
+	ExpectResult(t, out.String(), expect)
+}
+
+func TestHandleSwitchMasterPattern(t *testing.T) {
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	config.MasterPattern = "node-"
+	defer os.Remove(config.Out)
+
+	config.Servers = append(config.Servers,
+		&Server{"node-01", "1.2.3.4", "8000"},
+		&Server{"node-02", "1.2.3.5", "8001"})
+
+	switchMaster := &SwitchMaster{
+		"instance-01", "1.3.3.1", "7000", "1.3.3.2", "7001",
+	}
+
+	go func() {
+		<-config.WriteCh
+	}()
+
+	HandleSwitchMaster(switchMaster, config)
+
+	for i, server := range []*Server{
+		&Server{"node-01", "1.2.3.4", "8000"},
+		&Server{"node-02", "1.2.3.5", "8001"},
+	} {
+		if server.Name != config.Servers[i].Name ||
+			server.Ip != config.Servers[i].Ip ||
+			server.Port != config.Servers[i].Port {
+			t.Errorf("Expected server %d to be %+v, got %+v\n", i, server, config.Servers[i])
+		}
+	}
+
+	expect := []string{
+		"Ignoring switch-master for instance-01 because it does not match master_pattern",
+	}
+
+	ExpectResult(t, out.String(), expect)
+}
+
+func TestSetConfigServers(t *testing.T) {
+	var values []interface{}
+	values = []interface{}{
+		[]interface{}{
+			[]byte("ip"),
+			[]byte("1.2.3.4"),
+			[]byte("port"),
+			[]byte("8000"),
+			[]byte("name"),
+			[]byte("node-01"),
+		},
+	}
+	conn := redigomock.NewConn()
+	conn.Command("SENTINEL", "masters").Expect(values)
+
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	defer os.Remove(config.Out)
+
+	err := SetConfigServers(conn, config)
+	if err != nil {
+		t.Errorf("Error setting config servers: %s\n", err)
+	}
+
+	server := config.Servers[0]
+	if server.Ip != "1.2.3.4" ||
+		server.Port != "8000" ||
+		server.Name != "node-01" {
+		t.Errorf("Unexpected server master: %+v\n", server)
+	}
+}
+
+func TestSetConfigServersMasterPattern(t *testing.T) {
+	var values []interface{}
+	values = []interface{}{
+		[]interface{}{
+			[]byte("ip"),
+			[]byte("1.2.3.4"),
+			[]byte("port"),
+			[]byte("8000"),
+			[]byte("name"),
+			[]byte("node-01"),
+		},
+		[]interface{}{
+			[]byte("ip"),
+			[]byte("4.3.2.1"),
+			[]byte("port"),
+			[]byte("9000"),
+			[]byte("name"),
+			[]byte("instance-01"),
+		},
+		[]interface{}{
+			[]byte("ip"),
+			[]byte("1.2.3.5"),
+			[]byte("port"),
+			[]byte("8001"),
+			[]byte("name"),
+			[]byte("node-02"),
+		},
+	}
+	conn := redigomock.NewConn()
+	conn.Command("SENTINEL", "masters").Expect(values)
+
+	var out bytes.Buffer
+	SetLoggerWriter(&out)
+
+	config := NewTestConfig(t)
+	config.MasterPattern = "node-"
+	defer os.Remove(config.Out)
+
+	err := SetConfigServers(conn, config)
+	if err != nil {
+		t.Errorf("Error setting config servers: %s\n", err)
+	}
+
+	if len(config.Servers) != 2 {
+		t.Errorf("Expected 2 master servers, got %d\n", len(config.Servers))
+	}
+
+	expect := []string{
+		"Skipping server 'instance-01' because it does not match master pattern 'node-'",
+	}
+
+	ExpectResult(t, out.String(), expect)
 }

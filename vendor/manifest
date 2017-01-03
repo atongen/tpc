@@ -4,6 +4,7 @@
 		{
 			"importpath": "github.com/garyburd/redigo/internal",
 			"repository": "https://github.com/garyburd/redigo",
+			"vcs": "git",
 			"revision": "f8c71fc158ba13d50a7f5d8f10ea18ec49463c73",
 			"branch": "master",
 			"path": "internal"
@@ -11,6 +12,7 @@
 		{
 			"importpath": "github.com/garyburd/redigo/redis",
 			"repository": "https://github.com/garyburd/redigo",
+			"vcs": "git",
 			"revision": "f8c71fc158ba13d50a7f5d8f10ea18ec49463c73",
 			"branch": "master",
 			"path": "/redis"
@@ -18,12 +20,22 @@
 		{
 			"importpath": "github.com/nlopes/slack",
 			"repository": "https://github.com/nlopes/slack",
+			"vcs": "git",
 			"revision": "e595e9d8590a04ff76407e4e7d1791d25b095c66",
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/rafaeljusto/redigomock",
+			"repository": "https://github.com/rafaeljusto/redigomock",
+			"vcs": "git",
+			"revision": "8a39246926d9f2a732f775c5b360d7078191cbbd",
+			"branch": "master",
+			"notests": true
+		},
+		{
 			"importpath": "golang.org/x/net/http2/hpack",
 			"repository": "https://go.googlesource.com/net",
+			"vcs": "git",
 			"revision": "45e771701b814666a7eb299e6c7a57d0b1799e91",
 			"branch": "master",
 			"path": "/http2/hpack"
@@ -31,6 +43,7 @@
 		{
 			"importpath": "golang.org/x/net/websocket",
 			"repository": "https://go.googlesource.com/net",
+			"vcs": "git",
 			"revision": "45e771701b814666a7eb299e6c7a57d0b1799e91",
 			"branch": "master",
 			"path": "/websocket"

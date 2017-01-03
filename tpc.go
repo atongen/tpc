@@ -156,15 +156,19 @@ type SlackClient interface {
 func SetLogger(logPath string) error {
 	// setup log
 	if logPath == "" {
-		logger = log.New(os.Stdout, "", log.LstdFlags)
+		SetLoggerWriter(os.Stdout)
 	} else {
 		logFile, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return err
 		}
-		logger = log.New(logFile, "", log.LstdFlags)
+		SetLoggerWriter(logFile)
 	}
 	return nil
+}
+
+func SetLoggerWriter(w io.Writer) {
+	logger = log.New(w, "", log.LstdFlags)
 }
 
 func SetSlack(token, channel, username, iconEmoji string) error {
@@ -308,21 +312,26 @@ func ExecCmd(config *Config) error {
 	return nil
 }
 
-func DoConfigUpdate(config *Config) error {
-	config.Waiting = true
-	config.Wanted = false
+func DoConfigUpdate(config *Config) {
+	if config.Waiting {
+		config.Wanted = true
+		return
+	}
 
-	defer func() {
+	config.Waiting = true
+
+	go func() {
 		time.Sleep(time.Second * time.Duration(config.Wait))
 		logger.Println("Leaving config update wait period")
 		config.Waiting = false
 		if config.Wanted {
+			config.Wanted = false
 			config.WriteCh <- true
 		}
 	}()
 
 	if len(config.Servers) == 0 {
-		return errors.New("Server list is empty")
+		return
 	}
 
 	var (
@@ -337,41 +346,38 @@ func DoConfigUpdate(config *Config) error {
 		oldMd5sum, err = FileMd5sum(config.Out)
 	}
 	if err != nil {
-		return err
+		logger.Printf("Error getting old config md5sum: '%s'\n", err)
+		return
 	}
 
 	err = WriteConfig(config)
 	if err != nil {
-		return err
+		logger.Printf("Error writing config: '%s'\n", err)
+		return
 	}
 
 	newMd5sum, err = FileMd5sum(config.Out)
 	if err != nil {
-		return err
+		logger.Printf("Error getting new config md5sum: '%s'\n", err)
+		return
 	}
 
 	if newMd5sum == oldMd5sum {
-		err = errors.New("Not executing command because outfile has not changed")
-	} else {
-		err = ExecCmd(config)
+		logger.Println("Not executing command because outfile has not changed")
+		return
 	}
 
-	return err
+	err = ExecCmd(config)
+	if err != nil {
+		logger.Printf("Error executing command: '%s'\n", err)
+	}
 }
 
 func ConfigWriter(config *Config) {
 	for {
 		select {
 		case <-config.WriteCh:
-			if config.Waiting {
-				config.Wanted = true
-				logger.Println("Not rewriting while in wait period")
-			} else {
-				err := DoConfigUpdate(config)
-				if err != nil {
-					logger.Printf("Error updating config: %s\n", err)
-				}
-			}
+			go DoConfigUpdate(config)
 		case <-config.DoneCh:
 			break
 		}
@@ -445,14 +451,14 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 }
 
 func HandleSwitchMaster(switchMaster *SwitchMaster, config *Config) {
+	if config.MasterPattern != "" && !strings.Contains(switchMaster.MasterName, config.MasterPattern) {
+		logger.Printf("Ignoring switch-master for %s because it does not match master_pattern",
+			switchMaster.MasterName)
+		return
+	}
+
 	newServers := []*Server{}
 	for _, server := range config.Servers {
-		if config.MasterPattern != "" && !strings.Contains(switchMaster.MasterName, config.MasterPattern) {
-			logger.Printf("Ignoring switch-master for %s because it does not match master_pattern",
-				switchMaster.MasterName)
-			continue
-		}
-
 		var newServer *Server
 		if server.Name == switchMaster.MasterName &&
 			server.Ip == switchMaster.OldIp &&
@@ -536,9 +542,7 @@ func ParseMasterInstanceDetails(data string) (*InstanceDetails, error) {
 
 func ParseNonMasterInstanceDetails(serverData, masterData string) (*InstanceDetails, error) {
 	splitServerData := strings.Split(serverData, " ")
-	if len(splitServerData) != 4 ||
-		(splitServerData[0] != "slave" &&
-			splitServerData[0] != "sentinel") {
+	if len(splitServerData) != 4 || splitServerData[0] == "master" {
 		return nil, fmt.Errorf("Invalid server instance details: %s\n", serverData)
 	}
 
@@ -585,22 +589,25 @@ func SetConfigServers(conn redis.Conn, config *Config) error {
 	// query sentinel for initial master configuration
 	mastersData, err := redis.Values(conn.Do("SENTINEL", "masters"))
 	if err != nil {
-		return err
+		return fmt.Errorf("Error parsing sentinel masters: %s\n", err)
 	}
 
 	for _, masterData := range mastersData {
 		masterMap, err := redis.StringMap(masterData, nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("Error parsing master data: %s\n", err)
 		}
 
 		server, err := ServerFromMap(masterMap)
 		if err != nil {
-			return err
+			return fmt.Errorf("Error parsing parsing server from master map: %s\n", err)
 		}
 
 		if config.MasterPattern == "" || (strings.Contains(server.Name, config.MasterPattern)) {
 			config.Servers = append(config.Servers, server)
+		} else {
+			logger.Printf("Skipping server '%s' because it does not match master pattern '%s'",
+				server.Name, config.MasterPattern)
 		}
 	}
 
