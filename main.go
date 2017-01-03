@@ -36,9 +36,9 @@ var (
 	clientConnectionsFlag  = flag.Int("client_connections", 16384, "Twemproxy: The maximum number of connections allowed from redis clients")
 	serverConnectionsFlag  = flag.Int("server_connections", 1, "Twemproxy: The maximum number of connections that can be open to each server")
 	preconnectFlag         = flag.Bool("preconnect", false, "Twemproxy: A boolean value that controls if we should preconnect to all the servers in this pool on process start")
-	autoEjectHostsFlag     = flag.Bool("auto_eject_hosts", true, "Twemproxy: A boolean value that controls if server should be ejected temporarily when it fails consecutively server_failure_limit times.")
-	serverRetryTimeoutFlag = flag.Int("server_retry_timeout", 30000, "Twemproxy: The timeout value in msec to wait for before retrying on a temporarily ejected server, when auto_eject_host is set to true.")
-	serverFailureLimitFlag = flag.Int("server_failure_limit", 3, "Twemproxy: The number of consecutive failures on a server that would lead to it being temporarily ejected when auto_eject_host is set to true.")
+	autoEjectHostsFlag     = flag.Bool("auto_eject_hosts", false, "Twemproxy: A boolean value that controls if server should be ejected temporarily when it fails consecutively server_failure_limit times.")
+	serverRetryTimeoutFlag = flag.Int("server_retry_timeout", -1, "Twemproxy: The timeout value in msec to wait for before retrying on a temporarily ejected server, when auto_eject_host is set to true.")
+	serverFailureLimitFlag = flag.Int("server_failure_limit", -1, "Twemproxy: The number of consecutive failures on a server that would lead to it being temporarily ejected when auto_eject_host is set to true.")
 )
 
 func main() {

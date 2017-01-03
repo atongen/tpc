@@ -40,8 +40,12 @@ const (
 	redis: true
 	preconnect: {{.Preconnect}}
 	auto_eject_hosts: {{.AutoEjectHosts}}
+	{{ if gt .ServerRetryTimeout -1 -}}
 	server_retry_timeout: {{.ServerRetryTimeout}}
+	{{ end -}}
+	{{ if gt .ServerFailureLimit -1 -}}
 	server_failure_limit: {{.ServerFailureLimit}}
+	{{ end -}}
 	timeout: {{.Timeout}}
 	backlog: {{.Backlog}}
 	redis_db: {{.RedisDb}}
@@ -319,6 +323,7 @@ func DoConfigUpdate(config *Config) {
 	}
 
 	config.Waiting = true
+	time.Sleep(time.Second * 1)
 
 	go func() {
 		time.Sleep(time.Second * time.Duration(config.Wait))
@@ -334,36 +339,9 @@ func DoConfigUpdate(config *Config) {
 		return
 	}
 
-	var (
-		newMd5sum string
-		oldMd5sum string
-		err       error
-	)
-
-	if _, err := os.Stat(config.Out); os.IsNotExist(err) {
-		oldMd5sum = ""
-	} else {
-		oldMd5sum, err = FileMd5sum(config.Out)
-	}
-	if err != nil {
-		logger.Printf("Error getting old config md5sum: '%s'\n", err)
-		return
-	}
-
-	err = WriteConfig(config)
+	err := WriteConfig(config)
 	if err != nil {
 		logger.Printf("Error writing config: '%s'\n", err)
-		return
-	}
-
-	newMd5sum, err = FileMd5sum(config.Out)
-	if err != nil {
-		logger.Printf("Error getting new config md5sum: '%s'\n", err)
-		return
-	}
-
-	if newMd5sum == oldMd5sum {
-		logger.Println("Not executing command because outfile has not changed")
 		return
 	}
 
