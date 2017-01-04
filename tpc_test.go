@@ -225,28 +225,6 @@ func TestDoConfigUpdate(t *testing.T) {
 	ExpectResult(t, out.String(), expect)
 }
 
-func TestDoConfigUpdateNoChange(t *testing.T) {
-	var out bytes.Buffer
-	SetLoggerWriter(&out)
-
-	config := NewTestConfig(t)
-	config.Wait = 0
-	defer os.Remove(config.Out)
-
-	config.Servers = append(config.Servers,
-		&Server{"ZZZ", "1.2.3.4", "8000"},
-		&Server{"AAA", "1.2.3.5", "8001"})
-
-	DoConfigUpdate(config)
-	DoConfigUpdate(config)
-
-	expect := []string{
-		"Not executing command because outfile has not changed",
-	}
-
-	ExpectResult(t, out.String(), expect)
-}
-
 func TestDoConfigUpdateWait(t *testing.T) {
 	var out bytes.Buffer
 	SetLoggerWriter(&out)
