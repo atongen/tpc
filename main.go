@@ -14,7 +14,7 @@ var (
 	logFlag           = flag.String("log", "", "Path to log file, will write to STDOUT if empty")
 	outFlag           = flag.String("out", "", "File to write configuration, will write to STDOUT if empty")
 	cmdFlag           = flag.String("cmd", "killall -USR1 nutcracker", "Command to execute after master failover")
-	waitFlag          = flag.Int("wait", 60, "Minimum number of seconds to wait between cmd execution")
+	waitFlag          = flag.Int("wait", 1, "Minimum number of seconds to wait between cmd execution")
 	masterPatternFlag = flag.String("master_pattern", "", "If provided, will filter master names from sentinel based on pattern")
 
 	tokenFlag     = flag.String("token", "", "Slack: API token used for notifications")
@@ -29,13 +29,13 @@ var (
 	hashFlag               = flag.String("hash", "fnv1a_64", "Twemproxy: Hash algorithm")
 	hashTagFlag            = flag.String("has_tag", "", "Twemproxy: A two character string that specifies the part of the key used for hashing. Eg '{}' or '$$'")
 	distributionFlag       = flag.String("distribution", "ketama", "Twemproxy: Key distribution")
-	timeoutFlag            = flag.Int("timeout", 400, "Twemproxy: The timeout value in msec that we wait for to establish a connection to the server or receive a response from a server.")
-	backlogFlag            = flag.Int("backlog", 512, "Twemproxy: TCP backlog argument")
+	timeoutFlag            = flag.Int("timeout", -1, "Twemproxy: The timeout value in msec that we wait for to establish a connection to the server or receive a response from a server.")
+	backlogFlag            = flag.Int("backlog", 1024, "Twemproxy: TCP backlog argument")
 	redisAuthFlag          = flag.String("redis_auth", "", "Twemproxy: authenticate to the redis server on connect")
 	redisDbFlag            = flag.Int("redis_db", 0, "Twemproxy: The DB number to use on the redis pool servers. Twemproxy will always present itself to clients as DB 0")
-	clientConnectionsFlag  = flag.Int("client_connections", 16384, "Twemproxy: The maximum number of connections allowed from redis clients")
+	clientConnectionsFlag  = flag.Int("client_connections", 4096, "Twemproxy: The maximum number of connections allowed from redis clients")
 	serverConnectionsFlag  = flag.Int("server_connections", 1, "Twemproxy: The maximum number of connections that can be open to each server")
-	preconnectFlag         = flag.Bool("preconnect", false, "Twemproxy: A boolean value that controls if we should preconnect to all the servers in this pool on process start")
+	preconnectFlag         = flag.Bool("preconnect", true, "Twemproxy: A boolean value that controls if we should preconnect to all the servers in this pool on process start")
 	autoEjectHostsFlag     = flag.Bool("auto_eject_hosts", false, "Twemproxy: A boolean value that controls if server should be ejected temporarily when it fails consecutively server_failure_limit times.")
 	serverRetryTimeoutFlag = flag.Int("server_retry_timeout", -1, "Twemproxy: The timeout value in msec to wait for before retrying on a temporarily ejected server, when auto_eject_host is set to true.")
 	serverFailureLimitFlag = flag.Int("server_failure_limit", -1, "Twemproxy: The number of consecutive failures on a server that would lead to it being temporarily ejected when auto_eject_host is set to true.")
@@ -76,7 +76,6 @@ func main() {
 		MasterPattern: *masterPatternFlag,
 		Wait:          *waitFlag,
 		Waiting:       false,
-		Wanted:        false,
 		WriteCh:       make(chan bool),
 		DoneCh:        make(chan bool),
 

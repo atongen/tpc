@@ -41,7 +41,6 @@ func NewTestConfig(t *testing.T) *Config {
 		MasterPattern: "",
 		Wait:          1,
 		Waiting:       false,
-		Wanted:        false,
 		WriteCh:       make(chan bool),
 		DoneCh:        make(chan bool),
 
@@ -79,6 +78,32 @@ func NotExpectResult(t *testing.T, result string, expect []string) {
 		if strings.Contains(result, e) {
 			t.Fatalf("Did not expect result to contain '%s', but it did:\n%s\n", e, result)
 		}
+	}
+}
+
+func TestConfigAlert(t *testing.T) {
+	slackClient = NewTestSlackClient()
+	config := &Config{
+		Name: "alert-test",
+	}
+	msg := "Word."
+	n, err := ConfigAlert(config, msg)
+	if err != nil {
+		t.Error("Error sending config alert: %s\n", err)
+	}
+
+	messages := slackClient.(*TestSlackClient).Messages
+	if len(messages) != 1 {
+		t.Errorf("ConfigAlert: expected 1 message but got %d\n", len(messages))
+	}
+
+	myMsg := "tpc.test alert-test: Word."
+	if messages[0] != myMsg {
+		t.Errorf("ConfigAlert: expected message '%s' but got '%s'\n", myMsg, messages[0])
+	}
+
+	if n != len(messages[0]) {
+		t.Errorf("ConfigAlert: expected message length %d but got %d\n", len(messages[0]), n)
 	}
 }
 
@@ -211,11 +236,14 @@ func TestDoConfigUpdate(t *testing.T) {
 		&Server{"ZZZ", "1.2.3.4", "8000"},
 		&Server{"AAA", "1.2.3.5", "8001"})
 
-	DoConfigUpdate(config)
+	go DoConfigUpdate(config)
+	time.Sleep(time.Millisecond * time.Duration(config.Wait*500))
 
 	if !config.Waiting {
 		t.Error("Expected config to be waiting after DoConfigUpdate")
 	}
+
+	time.Sleep(time.Second * time.Duration(config.Wait))
 
 	expect := []string{
 		"Running command: 'echo mycmd'",
@@ -245,38 +273,7 @@ func TestDoConfigUpdateWait(t *testing.T) {
 	}
 
 	expect := []string{
-		"Leaving config update wait period",
-	}
-
-	ExpectResult(t, out.String(), expect)
-}
-
-func TestDoConfigUpdateWant(t *testing.T) {
-	var out bytes.Buffer
-	SetLoggerWriter(&out)
-
-	config := NewTestConfig(t)
-	defer os.Remove(config.Out)
-
-	config.Servers = append(config.Servers,
-		&Server{"ZZZ", "1.2.3.4", "8000"},
-		&Server{"AAA", "1.2.3.5", "8001"})
-
-	go DoConfigUpdate(config)
-	DoConfigUpdate(config)
-
-	if !config.Wanted {
-		t.Error("Expected config to be wanting after second DoConfigUpdate")
-	}
-
-	<-config.WriteCh
-
-	if config.Wanted {
-		t.Error("Expected config to not be wanted after read from WriteCh")
-	}
-
-	expect := []string{
-		"Leaving config update wait period",
+		"Beginning config update wait period",
 	}
 
 	ExpectResult(t, out.String(), expect)
@@ -524,9 +521,9 @@ func TestSetConfigServersMasterPattern(t *testing.T) {
 		t.Errorf("Expected 2 master servers, got %d\n", len(config.Servers))
 	}
 
-	expect := []string{
-		"Skipping server 'instance-01' because it does not match master pattern 'node-'",
+	for i, ip := range []string{"1.2.3.4", "1.2.3.5"} {
+		if config.Servers[i].Ip != ip {
+			t.Errorf("Expected %dth server's ip to be %s, got %s", i, ip, config.Servers[i].Ip)
+		}
 	}
-
-	ExpectResult(t, out.String(), expect)
 }

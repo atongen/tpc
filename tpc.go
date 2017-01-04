@@ -46,7 +46,9 @@ const (
 	{{ if gt .ServerFailureLimit -1 -}}
 	server_failure_limit: {{.ServerFailureLimit}}
 	{{ end -}}
+	{{ if gt .Timeout -1 -}}
 	timeout: {{.Timeout}}
+	{{ end -}}
 	backlog: {{.Backlog}}
 	redis_db: {{.RedisDb}}
 	client_connections: {{.ClientConnections}}
@@ -83,7 +85,6 @@ type Config struct {
 	MasterPattern string
 	Wait          int
 	Waiting       bool
-	Wanted        bool
 	WriteCh       chan bool
 	DoneCh        chan bool
 
@@ -217,9 +218,13 @@ func Alertf(format string, a ...interface{}) (int, error) {
 	return 0, nil
 }
 
-func PMessageAlert(config *Config, msg redis.PMessage) (int, error) {
+func ConfigAlert(config *Config, msg string) (int, error) {
 	appName := path.Base(os.Args[0])
-	return Alertf("%s %s: %s %s", appName, config.Name, msg.Channel, msg.Data)
+	return Alertf("%s %s: %s", appName, config.Name, msg)
+}
+
+func PMessageAlert(config *Config, msg redis.PMessage) (int, error) {
+	return ConfigAlert(config, fmt.Sprintf("%s %s", msg.Channel, msg.Data))
 }
 
 func ServerFromMap(serverData map[string]string) (*Server, error) {
@@ -318,26 +323,16 @@ func ExecCmd(config *Config) error {
 
 func DoConfigUpdate(config *Config) {
 	if config.Waiting {
-		config.Wanted = true
 		return
 	}
 
 	config.Waiting = true
-	time.Sleep(time.Second * 1)
-
-	go func() {
-		time.Sleep(time.Second * time.Duration(config.Wait))
-		logger.Println("Leaving config update wait period")
+	defer func() {
 		config.Waiting = false
-		if config.Wanted {
-			config.Wanted = false
-			config.WriteCh <- true
-		}
 	}()
 
-	if len(config.Servers) == 0 {
-		return
-	}
+	logger.Println("Beginning config update wait period")
+	time.Sleep(time.Second * time.Duration(config.Wait))
 
 	err := WriteConfig(config)
 	if err != nil {
@@ -561,39 +556,50 @@ func ParseSwitchMaster(data string) (*SwitchMaster, error) {
 	}, nil
 }
 
-func SetConfigServers(conn redis.Conn, config *Config) error {
-	config.Servers = []*Server{}
+func MasterServers(conn redis.Conn, filter string) (Servers, error) {
+	servers := []*Server{}
 
 	// query sentinel for initial master configuration
 	mastersData, err := redis.Values(conn.Do("SENTINEL", "masters"))
 	if err != nil {
-		return fmt.Errorf("Error parsing sentinel masters: %s\n", err)
+		return servers, fmt.Errorf("Error parsing sentinel masters: %s\n", err)
 	}
 
 	for _, masterData := range mastersData {
 		masterMap, err := redis.StringMap(masterData, nil)
 		if err != nil {
-			return fmt.Errorf("Error parsing master data: %s\n", err)
+			return servers, fmt.Errorf("Error parsing master data: %s\n", err)
 		}
 
 		server, err := ServerFromMap(masterMap)
 		if err != nil {
-			return fmt.Errorf("Error parsing parsing server from master map: %s\n", err)
+			return servers, fmt.Errorf("Error parsing parsing server from master map: %s\n", err)
 		}
 
-		if config.MasterPattern == "" || (strings.Contains(server.Name, config.MasterPattern)) {
-			config.Servers = append(config.Servers, server)
-		} else {
-			logger.Printf("Skipping server '%s' because it does not match master pattern '%s'",
-				server.Name, config.MasterPattern)
+		if filter == "" || (strings.Contains(server.Name, filter)) {
+			servers = append(servers, server)
 		}
 	}
 
+	return servers, nil
+}
+
+func SetConfigServers(conn redis.Conn, config *Config) error {
+	servers, err := MasterServers(conn, config.MasterPattern)
+	if err != nil {
+		return err
+	}
+
+	config.Servers = servers
 	return nil
 }
 
-func Listen(addr string, config *Config) error {
-	conn, err := redis.Dial("tcp", addr)
+func ListenSentinel(addr string, config *Config) error {
+	var (
+		conn redis.Conn
+		err  error
+	)
+	conn, err = redis.Dial("tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -604,10 +610,11 @@ func Listen(addr string, config *Config) error {
 		return err
 	}
 
-	go ConfigWriter(config)
 	config.WriteCh <- true
 
 	psc := redis.PubSubConn{conn}
+	defer psc.Close()
+
 	psc.PSubscribe("*")
 	for {
 		switch v := psc.Receive().(type) {
@@ -618,7 +625,7 @@ func Listen(addr string, config *Config) error {
 		case redis.Subscription:
 			logger.Printf("%s: %s %d\n", v.Channel, v.Kind, v.Count)
 		case error:
-			err = v
+			logger.Printf("Error from sentinel pubsub: %s\n", v)
 			break
 		default:
 			if conn.Err() != nil {
@@ -633,8 +640,6 @@ func Listen(addr string, config *Config) error {
 		}
 	}
 
-	config.DoneCh <- true
-
 	return err
 }
 
@@ -643,27 +648,31 @@ func ListenCluster(addrs []string, config *Config) {
 	defer close(config.DoneCh)
 	num := len(addrs)
 
+	go ConfigWriter(config)
+
 	retriesPerServer := 3
 	// try each sentinel max of 3 times in round-robin
-	maxRetries := num*retriesPerServer - 1
+	maxRetries := num * retriesPerServer
 	retries := 0
 
 	for {
-		addr := addrs[retries%retriesPerServer]
-		logger.Printf("Connecting to sentinel %s\n", addr)
-		err := Listen(addr, config)
-		if err != nil {
-			logger.Printf("Error from sentinel %s: %s\n", addr, err)
-		}
-		retries += 1
-
 		if retries >= maxRetries {
 			logger.Printf("Maximum retry count for all sentinel servers reached")
 			break
-		} else {
-			time.Sleep(time.Second * 1)
 		}
+
+		addr := addrs[retries%num]
+		logger.Printf("Connecting to sentinel %s\n", addr)
+
+		err := ListenSentinel(addr, config)
+		if err != nil {
+			msg := fmt.Sprintf("Sentinel (%s) error: %s", addr, err.Error())
+			logger.Println(msg)
+			ConfigAlert(config, msg)
+		}
+		retries += 1
 	}
 
+	config.DoneCh <- true
 	logger.Println("Goodbye!")
 }
