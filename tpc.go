@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"html/template"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -28,35 +30,35 @@ var (
 
 const (
 	configTmpl = `{{.Name}}:
-	listen: {{.Ip}}:{{.Port}}
-	hash: {{.Hash}}
-	{{ if .HashTag -}}
-	hash_tag: {{.HashTag}}
-	{{ end -}}
-	{{ if .RedisAuth -}}
-	redis_auth: {{.RedisAuth}}
-	{{ end -}}
-	distribution: {{.Distribution}}
-	redis: true
-	preconnect: {{.Preconnect}}
-	auto_eject_hosts: {{.AutoEjectHosts}}
-	{{ if gt .ServerRetryTimeout -1 -}}
-	server_retry_timeout: {{.ServerRetryTimeout}}
-	{{ end -}}
-	{{ if gt .ServerFailureLimit -1 -}}
-	server_failure_limit: {{.ServerFailureLimit}}
-	{{ end -}}
-	{{ if gt .Timeout -1 -}}
-	timeout: {{.Timeout}}
-	{{ end -}}
-	backlog: {{.Backlog}}
-	redis_db: {{.RedisDb}}
-	client_connections: {{.ClientConnections}}
-	server_connections: {{.ServerConnections}}
-	servers:
-	{{ range .Servers -}}
-	- {{.Ip}}:{{.Port}}:1 {{.Name}}
-	{{ end -}}`
+    listen: {{.Ip}}:{{.Port}}
+    hash: {{.Hash}}
+    {{ if .HashTag -}}
+    hash_tag: {{.HashTag}}
+    {{ end -}}
+    {{ if .RedisAuth -}}
+    redis_auth: {{.RedisAuth}}
+    {{ end -}}
+    distribution: {{.Distribution}}
+    redis: true
+    preconnect: {{.Preconnect}}
+    auto_eject_hosts: {{.AutoEjectHosts}}
+    {{ if gt .ServerRetryTimeout -1 -}}
+    server_retry_timeout: {{.ServerRetryTimeout}}
+    {{ end -}}
+    {{ if gt .ServerFailureLimit -1 -}}
+    server_failure_limit: {{.ServerFailureLimit}}
+    {{ end -}}
+    {{ if gt .Timeout -1 -}}
+    timeout: {{.Timeout}}
+    {{ end -}}
+    backlog: {{.Backlog}}
+    redis_db: {{.RedisDb}}
+    client_connections: {{.ClientConnections}}
+    server_connections: {{.ServerConnections}}
+    servers:
+    {{ range .Servers -}}
+    - {{.Ip}}:{{.Port}}:1 {{.Name}}
+    {{ end -}}`
 )
 
 type Server struct {
@@ -275,18 +277,30 @@ func WriteConfig(config *Config) error {
 		return err
 	}
 
-	return CleanConfig(config)
+	return CleanConfig(config.Out)
 }
 
-func CleanConfig(config *Config) error {
-	// remove trailing whitespace
-	_, err := exec.Command("sed", "-i", "s/[ \t]*$//", config.Out).Output()
+func CleanConfig(configPath string) error {
+	f, err := os.OpenFile(configPath, os.O_RDONLY, 0600)
 	if err != nil {
 		return err
 	}
 
-	// expand tabs
-	_, err = exec.Command("sed", "-i", "s/\t/    /g", config.Out).Output()
+	newContent := []string{}
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line != "" {
+			newLine := strings.Replace(strings.TrimRight(line, "\t "), "\t", "    ", 0)
+			newContent = append(newContent, newLine)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	f.Close()
+
+	err = ioutil.WriteFile(configPath, []byte(strings.Join(newContent, "\n")), 0600)
 	if err != nil {
 		return err
 	}
