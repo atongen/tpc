@@ -51,15 +51,15 @@ $ make release
 $ tpc -h
 Usage of tpc:
   -auto_eject_hosts
-        Twemproxy: A boolean value that controls if server should be ejected temporarily when it fails consecutively server_failure_limit times. (default true)
+        Twemproxy: A boolean value that controls if server should be ejected temporarily when it fails consecutively server_failure_limit times.
   -backlog int
-        Twemproxy: TCP backlog argument (default 512)
+        Twemproxy: TCP backlog argument (default 1024)
   -channel string
         Slack: channel for notifications (default "#incidents")
   -client_connections int
-        Twemproxy: The maximum number of connections allowed from redis clients (default 16384)
+        Twemproxy: The maximum number of connections allowed from redis clients (default 4096)
   -cmd string
-        Command to execute after master failover (default "killall -USR1 nutcracker")
+        Command to execute after master failover
   -distribution string
         Twemproxy: Key distribution (default "ketama")
   -has_tag string
@@ -81,7 +81,7 @@ Usage of tpc:
   -port int
         Twemproxy: Port (default 9000)
   -preconnect
-        Twemproxy: A boolean value that controls if we should preconnect to all the servers in this pool on process start
+        Twemproxy: A boolean value that controls if we should preconnect to all the servers in this pool on process start (default true)
   -redis_auth string
         Twemproxy: authenticate to the redis server on connect
   -redis_db int
@@ -91,18 +91,18 @@ Usage of tpc:
   -server_connections int
         Twemproxy: The maximum number of connections that can be open to each server (default 1)
   -server_failure_limit int
-        Twemproxy: The number of consecutive failures on a server that would lead to it being temporarily ejected when auto_eject_host is set to true. (default 3)
+        Twemproxy: The number of consecutive failures on a server that would lead to it being temporarily ejected when auto_eject_host is set to true. (default -1)
   -server_retry_timeout int
-        Twemproxy: The timeout value in msec to wait for before retrying on a temporarily ejected server, when auto_eject_host is set to true. (default 30000)
+        Twemproxy: The timeout value in msec to wait for before retrying on a temporarily ejected server, when auto_eject_host is set to true. (default -1)
   -timeout int
-        Twemproxy: The timeout value in msec that we wait for to establish a connection to the server or receive a response from a server. (default 400)
+        Twemproxy: The timeout value in msec that we wait for to establish a connection to the server or receive a response from a server. (default -1)
   -token string
         Slack: API token used for notifications
   -username string
         Slack: username for notifications
   -v    Print version information and exit
   -wait int
-        Minimum number of seconds to wait between cmd execution (default 60)
+        Number of seconds to wait before cmd execution (default 1)
 ```
 
 ## Issues
