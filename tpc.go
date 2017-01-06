@@ -322,17 +322,19 @@ func ExecCmd(config *Config) error {
 }
 
 func DoConfigUpdate(config *Config) {
-	if config.Waiting {
-		return
+	if config.Wait > 0 {
+		if config.Waiting {
+			return
+		}
+
+		config.Waiting = true
+		defer func() {
+			config.Waiting = false
+		}()
+
+		logger.Println("Beginning config update wait period")
+		time.Sleep(time.Second * time.Duration(config.Wait))
 	}
-
-	config.Waiting = true
-	defer func() {
-		config.Waiting = false
-	}()
-
-	logger.Println("Beginning config update wait period")
-	time.Sleep(time.Second * time.Duration(config.Wait))
 
 	err := WriteConfig(config)
 	if err != nil {
@@ -360,7 +362,7 @@ func ConfigWriter(config *Config) {
 func HandlePMessage(msg redis.PMessage, config *Config) {
 	switch msg.Channel {
 	default:
-		logger.Printf("unhandled message '%s': %s\n", msg.Channel, msg.Data)
+		logger.Printf("%s: %s\n", msg.Channel, msg.Data)
 	case "+switch-master":
 		PMessageAlert(config, msg)
 		switchMaster, err := ParseSwitchMaster(string(msg.Data))
@@ -368,27 +370,6 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 			logger.Printf("Error parsing +switch-master msg: %s\n", err)
 		} else {
 			HandleSwitchMaster(switchMaster, config)
-		}
-	case "+slave":
-		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
-		if err != nil {
-			logger.Printf("Error parsing +slave msg: %s\n", err)
-		} else {
-			HandlePosSlave(instanceDetails, config)
-		}
-	case "-role-change":
-		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
-		if err != nil {
-			logger.Printf("Error parsing -role-change msg: %s\n", err)
-		} else {
-			HandleNegRoleChange(instanceDetails, config)
-		}
-	case "+role-change":
-		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
-		if err != nil {
-			logger.Printf("Error parsing +role-change msg: %s\n", err)
-		} else {
-			HandlePosRoleChange(instanceDetails, config)
 		}
 	case "-sdown":
 		PMessageAlert(config, msg)
@@ -398,13 +379,6 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 		} else {
 			HandleNegSubjectivelyDown(instanceDetails, config)
 		}
-	case "+sdown":
-		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
-		if err != nil {
-			logger.Printf("Error parsing +sdown msg: %s\n", err)
-		} else {
-			HandlePosSubjectivelyDown(instanceDetails, config)
-		}
 	case "-odown":
 		PMessageAlert(config, msg)
 		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
@@ -412,13 +386,6 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 			logger.Printf("Error parsing -odown msg: %s\n", err)
 		} else {
 			HandleNegObjectivelyDown(instanceDetails, config)
-		}
-	case "+odown":
-		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
-		if err != nil {
-			logger.Printf("Error parsing +odown msg: %s\n", err)
-		} else {
-			HandlePosObjectivelyDown(instanceDetails, config)
 		}
 	}
 }
@@ -453,32 +420,12 @@ func HandleSwitchMaster(switchMaster *SwitchMaster, config *Config) {
 	config.WriteCh <- true
 }
 
-func HandlePosSlave(instanceDetails *InstanceDetails, config *Config) {
-	logger.Println("HandlePosSlave:", instanceDetails)
-}
-
-func HandleNegRoleChange(instanceDetails *InstanceDetails, config *Config) {
-	logger.Println("HandleNegRoleChange:", instanceDetails)
-}
-
-func HandlePosRoleChange(instanceDetails *InstanceDetails, config *Config) {
-	logger.Println("HandlePosRoleChange:", instanceDetails)
-}
-
 func HandleNegSubjectivelyDown(instanceDetails *InstanceDetails, config *Config) {
 	logger.Println("HandleNegSubjectivelyDown:", instanceDetails)
 }
 
-func HandlePosSubjectivelyDown(instanceDetails *InstanceDetails, config *Config) {
-	logger.Println("HandlePosSubjectivelyDown:", instanceDetails)
-}
-
 func HandleNegObjectivelyDown(instanceDetails *InstanceDetails, config *Config) {
 	logger.Println("HandleNegObjectivelyDown:", instanceDetails)
-}
-
-func HandlePosObjectivelyDown(instanceDetails *InstanceDetails, config *Config) {
-	logger.Println("HandlePosObjectivelyDown:", instanceDetails)
 }
 
 func ParseInstanceDetails(data string) (*InstanceDetails, error) {

@@ -17,7 +17,7 @@ or
 ```sh
 $ mkdir -p $GOPATH/src/github.com/DripEmail
 $ cd $GOPATH/src/github.com/DripEmail
-$ git clone tpc
+$ git clone git@github.com:DripEmail/tpc.git
 $ cd tpc
 $ go install
 $ rehash
@@ -27,36 +27,20 @@ $ rehash
 
 ```sh
 $ cd $GOPATH/src/github.com/DripEmail/tpc
-$ go test
+$ go test -cover
 ```
 
-## Example
+## Releases
 
-Here's an example of the output of running tpc, then killing a redis master process:
-
-```
-$ tpc -sentinels :8000,:8001,:8002,:8003,:8004 -out /home/atongen/Workspace/drip/nutcracker/nutcracker.yml -wait 10
-2016/12/23 12:49:56 Connecting to sentinel :8000
-2016/12/23 12:49:56 Writing to outfile: /home/atongen/Workspace/drip/nutcracker/nutcracker.yml
-2016/12/23 12:49:56 *: psubscribe 1
-2016/12/23 12:49:56 Running command: 'killall -USR1 nutcracker'
-2016/12/23 12:50:06 Leaving config update wait period
-2016/12/23 12:50:06 Error updating config: exit status 1
-2016/12/23 12:51:06 HandlePosSubjectivelyDown: master node-25 127.0.0.1:6025
-2016/12/23 12:51:06 unhandled message '+new-epoch': 1
-2016/12/23 12:51:06 unhandled message '+vote-for-leader': 48982c549e62dd5f5c4e2b27254af2b9c33f60be 1
-2016/12/23 12:51:06 HandlePosObjectivelyDown: master node-25 127.0.0.1:6025 (#quorum 5/3)
-2016/12/23 12:51:07 HandleNegRoleChange: slave 127.0.0.1:7025 127.0.0.1:7025, master: node-25 127.0.0.1:6025 (new reported role is master)
-2016/12/23 12:51:08 unhandled message '+config-update-from': sentinel 48982c549e62dd5f5c4e2b27254af2b9c33f60be 127.0.0.1 8001 @ node-25 127.0.0.1 6025
-2016/12/23 12:51:08 Replacing master node-25 127.0.0.1:6025 with 127.0.0.1:7025
-2016/12/23 12:51:08 HandlePosSlave: slave 127.0.0.1:6025 127.0.0.1:6025, master: node-25 127.0.0.1:7025
-2016/12/23 12:51:08 Writing to outfile: /home/atongen/Workspace/drip/nutcracker/nutcracker.yml
-2016/12/23 12:51:08 Running command: 'killall -USR1 nutcracker'
-2016/12/23 12:51:13 HandlePosSubjectivelyDown: slave 127.0.0.1:6025 127.0.0.1:6025, master: node-25 127.0.0.1:7025
-2016/12/23 12:51:18 Leaving config update wait period
+```sh
+$ mkdir -p $GOPATH/src/github.com/DripEmail
+$ cd $GOPATH/src/github.com/DripEmail
+$ git clone git@github.com:DripEmail/tpc.git
+$ cd tpc
+$ make release
 ```
 
-## Command-Line Help
+## Command-Line Options
 
 ```
 $ tpc -h
@@ -111,6 +95,7 @@ Usage of tpc:
         Slack: API token used for notifications
   -username string
         Slack: username for notifications
+  -v    Print version information and exit
   -wait int
         Minimum number of seconds to wait between cmd execution (default 60)
 ```
@@ -119,6 +104,10 @@ Usage of tpc:
 
 ### twemproxy hot reload
 
+There is a long-running twemproxy feature branch that is supposed to bring config hot-reload via unix signal:
+
 * https://github.com/twitter/twemproxy/issues/6
 * https://github.com/twitter/twemproxy/pull/321
 * https://github.com/machinezone/twemproxy/tree/lwalkin/config-reload
+
+Currently the solution is to pause the redis clients, then stop and restart the twemproxy process.

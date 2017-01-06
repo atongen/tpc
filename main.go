@@ -23,8 +23,8 @@ var (
 	sentinelsFlag     = flag.String("sentinels", "", "CSV of host:port to redis sentinels")
 	logFlag           = flag.String("log", "", "Path to log file, will write to STDOUT if empty")
 	outFlag           = flag.String("out", "", "File to write configuration, will write to STDOUT if empty")
-	cmdFlag           = flag.String("cmd", "killall -USR1 nutcracker", "Command to execute after master failover")
-	waitFlag          = flag.Int("wait", 1, "Minimum number of seconds to wait between cmd execution")
+	cmdFlag           = flag.String("cmd", "", "Command to execute after master failover")
+	waitFlag          = flag.Int("wait", 1, "Number of seconds to wait before cmd execution")
 	masterPatternFlag = flag.String("master_pattern", "", "If provided, will filter master names from sentinel based on pattern")
 
 	tokenFlag     = flag.String("token", "", "Slack: API token used for notifications")
@@ -57,6 +57,11 @@ func main() {
 	if *versionFlag {
 		fmt.Printf("tpc %s %s %s %s\n", Version, BuildTime, BuildUser, BuildHash)
 		os.Exit(0)
+	}
+
+	if *cmdFlag == "" {
+		fmt.Println("cmd is required")
+		os.Exit(1)
 	}
 
 	err := SetLogger(*logFlag)
