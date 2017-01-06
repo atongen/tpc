@@ -7,8 +7,18 @@ import (
 	"strings"
 )
 
-// flags
+// build flags
 var (
+	Version   string = "unset"
+	BuildTime string = "unset"
+	BuildUser string = "unset"
+	BuildHash string = "unset"
+)
+
+// cli flags
+var (
+	versionFlag = flag.Bool("v", false, "Print version information and exit")
+
 	// process flags
 	sentinelsFlag     = flag.String("sentinels", "", "CSV of host:port to redis sentinels")
 	logFlag           = flag.String("log", "", "Path to log file, will write to STDOUT if empty")
@@ -43,6 +53,11 @@ var (
 
 func main() {
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("tpc %s %s %s %s\n", Version, BuildTime, BuildUser, BuildHash)
+		os.Exit(0)
+	}
 
 	err := SetLogger(*logFlag)
 	if err != nil {
