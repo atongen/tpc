@@ -8,6 +8,11 @@ sentinel notifies of redis master failover.
 
 ## Install
 
+Download the [latest release](https://github.com/DripEmail/tpc/releases), extract it,
+and put it somewhere on your PATH.
+
+or
+
 ```sh
 $ go get github.com/DripEmail/tpc
 ```
