@@ -165,7 +165,7 @@ func SetLogger(logPath string) error {
 	if logPath == "" {
 		SetLoggerWriter(os.Stdout)
 	} else {
-		logFile, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0600)
+		logFile, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return err
 		}
@@ -267,7 +267,6 @@ func WriteConfig(config *Config) error {
 		if err != nil {
 			return err
 		}
-		defer out.(*os.File).Close()
 	}
 
 	sort.Sort(config.Servers)
@@ -276,12 +275,15 @@ func WriteConfig(config *Config) error {
 	if err != nil {
 		return err
 	}
+	if config.Out != "" {
+		out.(*os.File).Close()
+	}
 
 	return CleanConfig(config.Out)
 }
 
 func CleanConfig(configPath string) error {
-	f, err := os.OpenFile(configPath, os.O_RDONLY, 0600)
+	f, err := os.OpenFile(configPath, os.O_RDONLY, 0644)
 	if err != nil {
 		return err
 	}
@@ -300,7 +302,7 @@ func CleanConfig(configPath string) error {
 	}
 	f.Close()
 
-	err = ioutil.WriteFile(configPath, []byte(strings.Join(newContent, "\n")), 0600)
+	err = ioutil.WriteFile(configPath, []byte(strings.Join(newContent, "\n")), 0644)
 	if err != nil {
 		return err
 	}
