@@ -3,7 +3,7 @@ BUILD_TIME=$(shell date)
 BUILD_USER=$(shell whoami)
 BUILD_HASH=$(shell git rev-parse HEAD 2>/dev/null || echo "")
 ARCH=amd64
-OS=linux
+OS=linux darwin
 
 LDFLAGS=-ldflags "-X 'main.Version=$(VERSION)' -X 'main.BuildTime=$(BUILD_TIME)' -X 'main.BuildUser=$(BUILD_USER)' -X 'main.BuildHash=$(BUILD_HASH)'"
 
