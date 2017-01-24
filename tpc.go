@@ -26,6 +26,8 @@ var (
 	slackChannel   string
 	slackUsername  string
 	slackIconEmoji string
+
+	alertChannels = []string{"+switch-master", "+sdown", "-sdown", "+odown", "-odown"}
 )
 
 const (
@@ -262,7 +264,7 @@ func WriteConfig(config *Config) error {
 	if config.Out == "" {
 		out = os.Stdout
 	} else {
-		logger.Printf("Writing to outfile: %s\n", config.Out)
+		logger.Printf("Writing to outfile: %s", config.Out)
 		out, err = os.OpenFile(config.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return err
@@ -331,7 +333,7 @@ func ExecCmd(config *Config) error {
 	}
 	trimmed := strings.TrimSpace(string(output))
 	if trimmed != "" {
-		logger.Printf("Command output: '%s'\n", trimmed)
+		logger.Printf("Command output: '%s'", trimmed)
 	}
 
 	return nil
@@ -354,13 +356,13 @@ func DoConfigUpdate(config *Config) {
 
 	err := WriteConfig(config)
 	if err != nil {
-		logger.Printf("Error writing config: '%s'\n", err)
+		logger.Printf("Error writing config: '%s'", err)
 		return
 	}
 
 	err = ExecCmd(config)
 	if err != nil {
-		logger.Printf("Error executing command: '%s'\n", err)
+		logger.Printf("Error executing command: '%s'", err)
 	}
 }
 
@@ -376,32 +378,28 @@ func ConfigWriter(config *Config) {
 }
 
 func HandlePMessage(msg redis.PMessage, config *Config) {
-	switch msg.Channel {
-	default:
-		logger.Printf("%s: %s\n", msg.Channel, msg.Data)
-	case "+switch-master":
+	// log all messages
+	instanceDetails, err := ParseInstanceDetails(string(msg.Data))
+	if err != nil {
+		logger.Printf("%s: %s", msg.Channel, err)
+	} else {
+		logger.Printf("%s: %s", msg.Channel, instanceDetails)
+	}
+
+	// alert if from certain channels
+	if strSliceContains(alertChannels, msg.Channel) {
 		PMessageAlert(config, msg)
+	}
+
+	// handle switch master
+	if msg.Channel == "+switch-master" {
 		switchMaster, err := ParseSwitchMaster(string(msg.Data))
 		if err != nil {
-			logger.Printf("Error parsing +switch-master msg: %s\n", err)
+			msg := fmt.Sprintf("Error parsing +switch-master msg: %s", err)
+			ConfigAlert(config, msg)
+			logger.Println(msg)
 		} else {
 			HandleSwitchMaster(switchMaster, config)
-		}
-	case "-sdown":
-		PMessageAlert(config, msg)
-		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
-		if err != nil {
-			logger.Printf("Error parsing -sdown msg: %s\n", err)
-		} else {
-			HandleNegSubjectivelyDown(instanceDetails, config)
-		}
-	case "-odown":
-		PMessageAlert(config, msg)
-		instanceDetails, err := ParseInstanceDetails(string(msg.Data))
-		if err != nil {
-			logger.Printf("Error parsing -odown msg: %s\n", err)
-		} else {
-			HandleNegObjectivelyDown(instanceDetails, config)
 		}
 	}
 }
@@ -424,7 +422,7 @@ func HandleSwitchMaster(switchMaster *SwitchMaster, config *Config) {
 				Ip:   switchMaster.NewIp,
 				Port: switchMaster.NewPort,
 			}
-			logger.Printf("Replacing master %s %s:%s with %s:%s\n", switchMaster.MasterName,
+			logger.Printf("Replacing master %s %s:%s with %s:%s", switchMaster.MasterName,
 				switchMaster.OldIp, switchMaster.OldPort, switchMaster.NewIp, switchMaster.NewPort)
 		} else {
 			newServer = server
@@ -434,14 +432,6 @@ func HandleSwitchMaster(switchMaster *SwitchMaster, config *Config) {
 
 	config.Servers = newServers
 	config.WriteCh <- true
-}
-
-func HandleNegSubjectivelyDown(instanceDetails *InstanceDetails, config *Config) {
-	logger.Println("HandleNegSubjectivelyDown:", instanceDetails)
-}
-
-func HandleNegObjectivelyDown(instanceDetails *InstanceDetails, config *Config) {
-	logger.Println("HandleNegObjectivelyDown:", instanceDetails)
 }
 
 func ParseInstanceDetails(data string) (*InstanceDetails, error) {
@@ -582,20 +572,20 @@ func ListenSentinel(addr string, config *Config) error {
 	for {
 		switch v := psc.Receive().(type) {
 		case redis.Message:
-			logger.Printf("%s: message: %s\n", v.Channel, v.Data)
+			logger.Printf("%s: message: %s", v.Channel, v.Data)
 		case redis.PMessage:
 			HandlePMessage(v, config)
 		case redis.Subscription:
-			logger.Printf("%s: %s %d\n", v.Channel, v.Kind, v.Count)
+			logger.Printf("%s: %s %d", v.Channel, v.Kind, v.Count)
 		case error:
-			logger.Printf("Error from sentinel pubsub: %s\n", v)
+			logger.Printf("Error from sentinel pubsub: %s", v)
 			break
 		default:
 			if conn.Err() != nil {
 				err = conn.Err()
 				break
 			}
-			logger.Printf("Received unhandled message: %+v\n", v)
+			logger.Printf("Received unhandled message: %+v", v)
 		}
 		if conn.Err() != nil {
 			err = conn.Err()
@@ -625,7 +615,7 @@ func ListenCluster(addrs []string, config *Config) {
 		}
 
 		addr := addrs[retries%num]
-		logger.Printf("Connecting to sentinel %s\n", addr)
+		logger.Printf("Connecting to sentinel %s", addr)
 
 		err := ListenSentinel(addr, config)
 		if err != nil {
@@ -638,4 +628,13 @@ func ListenCluster(addrs []string, config *Config) {
 
 	config.DoneCh <- true
 	logger.Println("Goodbye!")
+}
+
+func strSliceContains(a []string, b string) bool {
+	for _, s := range a {
+		if s == b {
+			return true
+		}
+	}
+	return false
 }

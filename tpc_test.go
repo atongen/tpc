@@ -527,3 +527,24 @@ func TestSetConfigServersMasterPattern(t *testing.T) {
 		}
 	}
 }
+
+func TestStrSliceContains(t *testing.T) {
+	for _, tt := range []struct {
+		s []string
+		b string
+		r bool
+	}{
+		{[]string{}, "one", false},
+		{[]string{}, "", false},
+		{[]string{"one"}, "one", true},
+		{[]string{"one"}, "", false},
+		{[]string{"one"}, "two", false},
+		{[]string{"one", "two"}, "one", true},
+		{[]string{"one", "two"}, "three", false},
+	} {
+		r := strSliceContains(tt.s, tt.b)
+		if r != tt.r {
+			t.Errorf("strSliceContains(%v, %s) => %t, want %t", tt.s, tt.b, r, tt.r)
+		}
+	}
+}
