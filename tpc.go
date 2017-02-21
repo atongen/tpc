@@ -27,7 +27,7 @@ var (
 	slackUsername  string
 	slackIconEmoji string
 
-	alertChannels = []string{"+switch-master", "+sdown", "-sdown", "+odown", "-odown"}
+	alertChannels = []string{"+switch-master", "+odown", "-odown"}
 )
 
 const (

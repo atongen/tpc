@@ -1,3 +1,4 @@
+NAME=tpc
 VERSION=$(shell cat version)
 BUILD_TIME=$(shell date)
 BUILD_USER=$(shell whoami)
@@ -11,6 +12,7 @@ all: clean test build
 
 clean:
 	go clean
+	@rm -f `which ${NAME}`
 
 test:
 	go test -cover
@@ -25,7 +27,7 @@ distclean:
 dist: test distclean
 	for arch in ${ARCH}; do \
 		for os in ${OS}; do \
-			env GOOS=$${os} GOARCH=$${arch} go build -v ${LDFLAGS} -o dist/tpc-${VERSION}-$${os}-$${arch}; \
+			env GOOS=$${os} GOARCH=$${arch} go build -v ${LDFLAGS} -o dist/${NAME}-${VERSION}-$${os}-$${arch}; \
 		done; \
 	done
 
@@ -38,13 +40,19 @@ sign: dist
 package: sign
 	for arch in ${ARCH}; do \
 		for os in ${OS}; do \
-			tar czf dist/tpc-${VERSION}-$${os}-$${arch}.tar.gz -C dist tpc-${VERSION}-$${os}-$${arch} tpc-${VERSION}-$${os}-$${arch}.asc; \
+			tar czf dist/${NAME}-${VERSION}-$${os}-$${arch}.tar.gz -C dist ${NAME}-${VERSION}-$${os}-$${arch} ${NAME}-${VERSION}-$${os}-$${arch}.asc; \
 		done; \
-	done
+	done; \
+	find dist/ -type f  ! -name "*.tar.gz" -delete
 
 tag:
 	scripts/tag.sh
 
-release: package tag
+upload:
+	if [ ! -z "\${GITHUB_TOKEN}" ]; then \
+		ghr -t "${GITHUB_TOKEN}" -u DripEmail -r ${NAME} -replace ${VERSION} dist/; \
+	fi
 
-.PHONY: all clean test build distclean dist sign package tag release
+release: package tag upload
+
+.PHONY: all clean test build distclean dist sign package tag upload release
