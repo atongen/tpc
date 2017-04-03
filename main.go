@@ -24,7 +24,6 @@ var (
 	logFlag           = flag.String("log", "", "Path to log file, will write to STDOUT if empty")
 	outFlag           = flag.String("out", "", "File to write configuration, will write to STDOUT if empty")
 	cmdFlag           = flag.String("cmd", "", "Command to execute after master failover")
-	waitFlag          = flag.Int("wait", 1, "Number of seconds to wait before cmd execution")
 	masterPatternFlag = flag.String("master_pattern", "", "If provided, will filter master names from sentinel based on pattern")
 
 	tokenFlag     = flag.String("token", "", "Slack: API token used for notifications")
@@ -94,9 +93,7 @@ func main() {
 		Out:           *outFlag,
 		Cmd:           *cmdFlag,
 		MasterPattern: *masterPatternFlag,
-		Wait:          *waitFlag,
-		Waiting:       false,
-		WriteCh:       make(chan bool),
+		WriteCh:       make(chan bool, 8),
 		DoneCh:        make(chan bool),
 
 		Name:               *nameFlag,

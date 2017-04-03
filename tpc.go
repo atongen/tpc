@@ -13,7 +13,6 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/nlopes/slack"
@@ -87,8 +86,6 @@ type Config struct {
 	Out           string
 	Cmd           string
 	MasterPattern string
-	Wait          int
-	Waiting       bool
 	WriteCh       chan bool
 	DoneCh        chan bool
 
@@ -340,19 +337,7 @@ func ExecCmd(config *Config) error {
 }
 
 func DoConfigUpdate(config *Config) {
-	if config.Wait > 0 {
-		if config.Waiting {
-			return
-		}
-
-		config.Waiting = true
-		defer func() {
-			config.Waiting = false
-		}()
-
-		logger.Println("Beginning config update wait period")
-		time.Sleep(time.Second * time.Duration(config.Wait))
-	}
+	logger.Println("Doing config update")
 
 	err := WriteConfig(config)
 	if err != nil {
@@ -370,7 +355,7 @@ func ConfigWriter(config *Config) {
 	for {
 		select {
 		case <-config.WriteCh:
-			go DoConfigUpdate(config)
+			DoConfigUpdate(config)
 		case <-config.DoneCh:
 			break
 		}
@@ -438,7 +423,7 @@ func ParseInstanceDetails(data string) (*InstanceDetails, error) {
 	splitData := strings.Split(data, " @ ")
 	switch len(splitData) {
 	default:
-		return nil, fmt.Errorf("Invalid instance details: %s\n", data)
+		return nil, fmt.Errorf("Invalid instance details: '%s'", data)
 	case 1:
 		return ParseMasterInstanceDetails(splitData[0])
 	case 2:
@@ -449,7 +434,7 @@ func ParseInstanceDetails(data string) (*InstanceDetails, error) {
 func ParseMasterInstanceDetails(data string) (*InstanceDetails, error) {
 	splitData := strings.Split(data, " ")
 	if len(splitData) < 4 || splitData[0] != "master" {
-		return nil, fmt.Errorf("Invalid master instance details: %s\n", data)
+		return nil, fmt.Errorf("Invalid master instance details: '%s'", data)
 	}
 
 	instanceDetails := &InstanceDetails{
@@ -469,12 +454,12 @@ func ParseMasterInstanceDetails(data string) (*InstanceDetails, error) {
 func ParseNonMasterInstanceDetails(serverData, masterData string) (*InstanceDetails, error) {
 	splitServerData := strings.Split(serverData, " ")
 	if len(splitServerData) != 4 || splitServerData[0] == "master" {
-		return nil, fmt.Errorf("Invalid server instance details: %s\n", serverData)
+		return nil, fmt.Errorf("Invalid server instance details: '%s'", serverData)
 	}
 
 	splitMasterData := strings.Split(masterData, " ")
 	if len(splitMasterData) < 3 {
-		return nil, fmt.Errorf("Invalid master instance details for non-master: %s\n", masterData)
+		return nil, fmt.Errorf("Invalid master instance details for non-master: '%s'", masterData)
 	}
 
 	instanceDetails := &InstanceDetails{
@@ -497,7 +482,7 @@ func ParseNonMasterInstanceDetails(serverData, masterData string) (*InstanceDeta
 func ParseSwitchMaster(data string) (*SwitchMaster, error) {
 	splitData := strings.Split(data, " ")
 	if len(splitData) != 5 {
-		return nil, fmt.Errorf("Invalid switch master: %s\n", data)
+		return nil, fmt.Errorf("Invalid switch master: '%s'", data)
 	}
 
 	return &SwitchMaster{
@@ -515,18 +500,18 @@ func MasterServers(conn redis.Conn, filter string) (Servers, error) {
 	// query sentinel for initial master configuration
 	mastersData, err := redis.Values(conn.Do("SENTINEL", "masters"))
 	if err != nil {
-		return servers, fmt.Errorf("Error parsing sentinel masters: %s\n", err)
+		return servers, fmt.Errorf("Error parsing sentinel masters: '%s'", err)
 	}
 
 	for _, masterData := range mastersData {
 		masterMap, err := redis.StringMap(masterData, nil)
 		if err != nil {
-			return servers, fmt.Errorf("Error parsing master data: %s\n", err)
+			return servers, fmt.Errorf("Error parsing master data: '%s'", err)
 		}
 
 		server, err := ServerFromMap(masterMap)
 		if err != nil {
-			return servers, fmt.Errorf("Error parsing parsing server from master map: %s\n", err)
+			return servers, fmt.Errorf("Error parsing parsing server from master map: '%s'", err)
 		}
 
 		if filter == "" || (strings.Contains(server.Name, filter)) {

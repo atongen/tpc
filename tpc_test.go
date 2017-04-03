@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/nlopes/slack"
@@ -39,8 +38,6 @@ func NewTestConfig(t *testing.T) *Config {
 		Out:           tmpfile.Name(),
 		Cmd:           "echo mycmd",
 		MasterPattern: "",
-		Wait:          1,
-		Waiting:       false,
 		WriteCh:       make(chan bool),
 		DoneCh:        make(chan bool),
 
@@ -70,6 +67,13 @@ func ExpectResult(t *testing.T, result string, expect []string) {
 		if !strings.Contains(result, e) {
 			t.Fatalf("Expected result to contain '%s', but it did not:\n%s\n", e, result)
 		}
+	}
+}
+
+func ExpectResultTimes(t *testing.T, result string, sub string, times int) {
+	n := strings.Count(result, sub)
+	if n != times {
+		t.Fatalf("Expected result to contain '%s' %d times, but was %d times\n", sub, times, n)
 	}
 }
 
@@ -236,14 +240,7 @@ func TestDoConfigUpdate(t *testing.T) {
 		&Server{"ZZZ", "1.2.3.4", "8000"},
 		&Server{"AAA", "1.2.3.5", "8001"})
 
-	go DoConfigUpdate(config)
-	time.Sleep(time.Millisecond * time.Duration(config.Wait*500))
-
-	if !config.Waiting {
-		t.Error("Expected config to be waiting after DoConfigUpdate")
-	}
-
-	time.Sleep(time.Second * time.Duration(config.Wait))
+	DoConfigUpdate(config)
 
 	expect := []string{
 		"Running command: 'echo mycmd'",
@@ -253,7 +250,7 @@ func TestDoConfigUpdate(t *testing.T) {
 	ExpectResult(t, out.String(), expect)
 }
 
-func TestDoConfigUpdateWait(t *testing.T) {
+func TestDoConfigUpdateMulti(t *testing.T) {
 	var out bytes.Buffer
 	SetLoggerWriter(&out)
 
@@ -265,18 +262,12 @@ func TestDoConfigUpdateWait(t *testing.T) {
 		&Server{"AAA", "1.2.3.5", "8001"})
 
 	DoConfigUpdate(config)
+	config.Servers[0].Ip = "1.2.3.10"
+	DoConfigUpdate(config)
+	config.Servers[1].Ip = "1.2.3.11"
+	DoConfigUpdate(config)
 
-	time.Sleep(time.Second * time.Duration(config.Wait))
-
-	if config.Waiting {
-		t.Error("Expected config to not be waiting after DoConfigUpdate wait period")
-	}
-
-	expect := []string{
-		"Beginning config update wait period",
-	}
-
-	ExpectResult(t, out.String(), expect)
+	ExpectResultTimes(t, out.String(), "Doing config update", 3)
 }
 
 func TestParseSwitchMaster(t *testing.T) {

@@ -101,8 +101,6 @@ Usage of tpc:
   -username string
         Slack: username for notifications
   -v    Print version information and exit
-  -wait int
-        Number of seconds to wait before cmd execution (default 1)
 ```
 
 ## Issues
