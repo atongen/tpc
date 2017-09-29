@@ -1,12 +1,15 @@
 NAME=tpc
 VERSION=$(shell cat version)
-BUILD_TIME=$(shell date)
-BUILD_USER=$(shell whoami)
-BUILD_HASH=$(shell git rev-parse HEAD 2>/dev/null || echo "")
+BUILD_TIME=$(shell date -u +"%Y-%m-%d %T")
+BUILD_HASH=$(shell git rev-parse HEAD | cut -c 1-7 2>/dev/null || echo "")
+GO_VERSION=$(shell go version | awk '{print $$3}')
 ARCH=amd64
 OS=linux darwin
 
-LDFLAGS=-ldflags "-X 'main.Version=$(VERSION)' -X 'main.BuildTime=$(BUILD_TIME)' -X 'main.BuildUser=$(BUILD_USER)' -X 'main.BuildHash=$(BUILD_HASH)'"
+LDFLAGS=-ldflags "-X 'main.Version=$(VERSION)' \
+									-X 'main.BuildTime=$(BUILD_TIME)' \
+									-X 'main.BuildHash=$(BUILD_HASH)' \
+									-X 'main.GoVersion=$(GO_VERSION)'"
 
 all: clean test build
 
@@ -49,8 +52,8 @@ tag:
 	scripts/tag.sh
 
 upload:
-	if [ ! -z "\${GITHUB_TOKEN}" ]; then \
-		ghr -t "${GITHUB_TOKEN}" -u DripEmail -r ${NAME} -replace ${VERSION} dist/; \
+	if [ ! -z "$${GITHUB_TOKEN}" ]; then \
+		ghr -t "$${GITHUB_TOKEN}" -u $$(whoami) -r ${NAME} -replace ${VERSION} dist/; \
 	fi
 
 release: package tag upload

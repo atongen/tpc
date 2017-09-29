@@ -4,15 +4,18 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path"
 	"strings"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // build flags
 var (
-	Version   string = "unset"
+	Version   string = "development"
 	BuildTime string = "unset"
-	BuildUser string = "unset"
 	BuildHash string = "unset"
+	GoVersion string = "unset"
 )
 
 // cli flags
@@ -50,11 +53,21 @@ var (
 	serverFailureLimitFlag = flag.Int("server_failure_limit", -1, "Twemproxy: The number of consecutive failures on a server that would lead to it being temporarily ejected when auto_eject_host is set to true.")
 )
 
+func init() {
+	prometheus.MustRegister(pmessagesTotal)
+	prometheus.MustRegister(parseErrorsTotal)
+	prometheus.MustRegister(configErrorsTotal)
+}
+
+func versionStr() string {
+	return fmt.Sprintf("%s %s %s %s %s", path.Base(os.Args[0]), Version, BuildTime, BuildHash, GoVersion)
+}
+
 func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Printf("tpc %s %s %s %s\n", Version, BuildTime, BuildUser, BuildHash)
+		fmt.Println(versionStr())
 		os.Exit(0)
 	}
 

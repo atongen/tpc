@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/nlopes/slack"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -27,6 +30,26 @@ var (
 	slackIconEmoji string
 
 	alertChannels = []string{"+switch-master", "+odown", "-odown"}
+)
+
+// metrics
+var (
+	pmessagesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "tpc_pmessages_total",
+		Help: "Pub/sub messages received from sentinel",
+	},
+		[]string{"instance_type", "channel"},
+	)
+
+	parseErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "tpc_parse_errors_total",
+		Help: "Erros while parsing messages received from sentinel",
+	})
+
+	configErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "tpc_config_errors_total",
+		Help: "Erros while parsing messages received from sentinel",
+	})
 )
 
 const (
@@ -164,7 +187,7 @@ func SetLogger(logPath string) error {
 	if logPath == "" {
 		SetLoggerWriter(os.Stdout)
 	} else {
-		logFile, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0644)
+		logFile, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
 			return err
 		}
@@ -367,8 +390,10 @@ func HandlePMessage(msg redis.PMessage, config *Config) {
 	instanceDetails, err := ParseInstanceDetails(string(msg.Data))
 	if err != nil {
 		logger.Printf("%s: %s", msg.Channel, err)
+		parseErrorsTotal.Inc()
 	} else {
 		logger.Printf("%s: %s", msg.Channel, instanceDetails)
+		pmessagesTotal.WithLabelValues(instanceDetails.InstanceType, msg.Channel).Inc()
 	}
 
 	// alert if from certain channels
@@ -588,6 +613,9 @@ func ListenCluster(addrs []string, config *Config) {
 
 	go ConfigWriter(config)
 
+	http.Handle("/metrics", promhttp.Handler())
+	go http.ListenAndServe(":9298", nil)
+
 	retriesPerServer := 3
 	// try each sentinel max of 3 times in round-robin
 	maxRetries := num * retriesPerServer
@@ -600,19 +628,21 @@ func ListenCluster(addrs []string, config *Config) {
 		}
 
 		addr := addrs[retries%num]
+		logger.Println(versionStr())
 		logger.Printf("Connecting to sentinel %s", addr)
 
 		err := ListenSentinel(addr, config)
 		if err != nil {
 			msg := fmt.Sprintf("Sentinel (%s) error: %s", addr, err.Error())
 			logger.Println(msg)
+			configErrorsTotal.Inc()
 			ConfigAlert(config, msg)
 		}
 		retries += 1
 	}
 
-	config.DoneCh <- true
 	logger.Println("Goodbye!")
+	config.DoneCh <- true
 }
 
 func strSliceContains(a []string, b string) bool {
