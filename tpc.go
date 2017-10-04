@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -129,6 +129,9 @@ type Config struct {
 	ServerRetryTimeout int
 	ServerFailureLimit int
 	Servers            Servers
+
+	ListenAddress string
+	TelemetryPath string
 }
 
 type InstanceDetails struct {
@@ -276,42 +279,39 @@ func ServerFromMap(serverData map[string]string) (*Server, error) {
 }
 
 func WriteConfig(config *Config) error {
-	var (
-		out io.Writer
-		err error
-	)
+	buf := bytes.NewBuffer([]byte{})
+	sort.Sort(config.Servers)
+	err := tmpl.Execute(buf, config)
+	if err != nil {
+		return err
+	}
+
+	clean, err := CleanConfig(buf)
+	if err != nil {
+		return err
+	}
+
+	var w io.Writer
 
 	if config.Out == "" {
-		out = os.Stdout
+		w = os.Stdout
 	} else {
 		logger.Printf("Writing to outfile: %s", config.Out)
-		out, err = os.OpenFile(config.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		out, err := os.OpenFile(config.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return err
 		}
+		defer out.Close()
+		w = out
 	}
 
-	sort.Sort(config.Servers)
-
-	err = tmpl.Execute(out, config)
-	if err != nil {
-		return err
-	}
-	if config.Out != "" {
-		out.(*os.File).Close()
-	}
-
-	return CleanConfig(config.Out)
+	w.Write(clean)
+	return nil
 }
 
-func CleanConfig(configPath string) error {
-	f, err := os.OpenFile(configPath, os.O_RDONLY, 0644)
-	if err != nil {
-		return err
-	}
-
+func CleanConfig(r io.Reader) ([]byte, error) {
 	newContent := []string{}
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line != "" {
@@ -320,16 +320,9 @@ func CleanConfig(configPath string) error {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return []byte{}, err
 	}
-	f.Close()
-
-	err = ioutil.WriteFile(configPath, []byte(strings.Join(newContent, "\n")), 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return []byte(strings.Join(newContent, "\n")), nil
 }
 
 func ExecCmd(config *Config) error {
@@ -613,8 +606,8 @@ func ListenCluster(addrs []string, config *Config) {
 
 	go ConfigWriter(config)
 
-	http.Handle("/metrics", promhttp.Handler())
-	go http.ListenAndServe(":9298", nil)
+	http.Handle(config.TelemetryPath, promhttp.Handler())
+	go http.ListenAndServe(config.ListenAddress, nil)
 
 	retriesPerServer := 3
 	// try each sentinel max of 3 times in round-robin

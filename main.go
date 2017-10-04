@@ -23,12 +23,13 @@ var (
 	versionFlag = flag.Bool("v", false, "Print version information and exit")
 
 	// process flags
-	sentinelsFlag     = flag.String("sentinels", "", "CSV of host:port to redis sentinels")
-	logFlag           = flag.String("log", "", "Path to log file, will write to STDOUT if empty")
-	outFlag           = flag.String("out", "", "File to write configuration, will write to STDOUT if empty")
-	cmdFlag           = flag.String("cmd", "", "Command to execute after master failover")
-	masterPatternFlag = flag.String("master_pattern", "", "If provided, will filter master names from sentinel based on pattern")
+	sentinelsFlag     = flag.String("sentinels", "", "Process: CSV of host:port to redis sentinels")
+	logFlag           = flag.String("log", "", "Process: Path to log file, will write to STDOUT if empty")
+	outFlag           = flag.String("out", "", "Process: File to write configuration, will write to STDOUT if empty")
+	cmdFlag           = flag.String("cmd", "", "Process: Command to execute after master failover")
+	masterPatternFlag = flag.String("master_pattern", "", "Process: If provided, will filter master names from sentinel based on pattern")
 
+	// slack flags
 	tokenFlag     = flag.String("token", "", "Slack: API token used for notifications")
 	channelFlag   = flag.String("channel", "#incidents", "Slack: channel for notifications")
 	usernameFlag  = flag.String("username", "", "Slack: username for notifications")
@@ -51,6 +52,10 @@ var (
 	autoEjectHostsFlag     = flag.Bool("auto_eject_hosts", false, "Twemproxy: A boolean value that controls if server should be ejected temporarily when it fails consecutively server_failure_limit times.")
 	serverRetryTimeoutFlag = flag.Int("server_retry_timeout", -1, "Twemproxy: The timeout value in msec to wait for before retrying on a temporarily ejected server, when auto_eject_host is set to true.")
 	serverFailureLimitFlag = flag.Int("server_failure_limit", -1, "Twemproxy: The number of consecutive failures on a server that would lead to it being temporarily ejected when auto_eject_host is set to true.")
+
+	// prometheus flags
+	listenAddressFlag = flag.String("listen_address", ":9298", "Prometheus: Listen address")
+	telemetryPathFlag = flag.String("telemetry_path", "/metrics", "Prometheus: Telemetry path")
 )
 
 func init() {
@@ -125,6 +130,9 @@ func main() {
 		AutoEjectHosts:     *autoEjectHostsFlag,
 		ServerRetryTimeout: *serverRetryTimeoutFlag,
 		ServerFailureLimit: *serverFailureLimitFlag,
+
+		ListenAddress: *listenAddressFlag,
+		TelemetryPath: *telemetryPathFlag,
 	}
 
 	ListenCluster(sentinelAddrs, &config)
