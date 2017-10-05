@@ -8,21 +8,21 @@ sentinel notifies of redis master failover.
 
 ## Install
 
-Download the [latest release](https://github.com/DripEmail/tpc/releases), extract it,
+Download the [latest release](https://github.com/atongen/tpc/releases), extract it,
 and put it somewhere on your PATH.
 
 or
 
 ```sh
-$ go get github.com/DripEmail/tpc
+$ go get github.com/atongen/tpc
 ```
 
 or
 
 ```sh
-$ mkdir -p $GOPATH/src/github.com/DripEmail
-$ cd $GOPATH/src/github.com/DripEmail
-$ git clone git@github.com:DripEmail/tpc.git
+$ mkdir -p $GOPATH/src/github.com/atongen
+$ cd $GOPATH/src/github.com/atongen
+$ git clone git@github.com:atongen/tpc.git
 $ cd tpc
 $ go install
 $ rehash
@@ -31,16 +31,16 @@ $ rehash
 ## Testing
 
 ```sh
-$ cd $GOPATH/src/github.com/DripEmail/tpc
+$ cd $GOPATH/src/github.com/atongen/tpc
 $ go test -cover
 ```
 
 ## Releases
 
 ```sh
-$ mkdir -p $GOPATH/src/github.com/DripEmail
-$ cd $GOPATH/src/github.com/DripEmail
-$ git clone git@github.com:DripEmail/tpc.git
+$ mkdir -p $GOPATH/src/github.com/atongen
+$ cd $GOPATH/src/github.com/atongen
+$ git clone git@github.com:atongen/tpc.git
 $ cd tpc
 $ make release
 ```
@@ -48,7 +48,7 @@ $ make release
 ## Command-Line Options
 
 ```
-$ tpc -h
+λ tpc -h
 Usage of tpc:
   -auto_eject_hosts
         Twemproxy: A boolean value that controls if server should be ejected temporarily when it fails consecutively server_failure_limit times.
@@ -59,7 +59,7 @@ Usage of tpc:
   -client_connections int
         Twemproxy: The maximum number of connections allowed from redis clients (default 4096)
   -cmd string
-        Command to execute after master failover
+        Process: Command to execute after master failover
   -distribution string
         Twemproxy: Key distribution (default "ketama")
   -has_tag string
@@ -70,14 +70,16 @@ Usage of tpc:
         Slack: icon emoji for notifications
   -ip string
         Twemproxy: Ip address (default "0.0.0.0")
+  -listen_address string
+        Prometheus: Listen address (default ":9298")
   -log string
-        Path to log file, will write to STDOUT if empty
+        Process: Path to log file, will write to STDOUT if empty
   -master_pattern string
-        If provided, will filter master names from sentinel based on pattern
+        Process: If provided, will filter master names from sentinel based on pattern
   -name string
         Twemproxy: Name of redis pool (default "redis")
   -out string
-        File to write configuration, will write to STDOUT if empty
+        Process: File to write configuration, will write to STDOUT if empty
   -port int
         Twemproxy: Port (default 9000)
   -preconnect
@@ -87,13 +89,15 @@ Usage of tpc:
   -redis_db int
         Twemproxy: The DB number to use on the redis pool servers. Twemproxy will always present itself to clients as DB 0
   -sentinels string
-        CSV of host:port to redis sentinels
+        Process: CSV of host:port to redis sentinels
   -server_connections int
         Twemproxy: The maximum number of connections that can be open to each server (default 1)
   -server_failure_limit int
         Twemproxy: The number of consecutive failures on a server that would lead to it being temporarily ejected when auto_eject_host is set to true. (default -1)
   -server_retry_timeout int
         Twemproxy: The timeout value in msec to wait for before retrying on a temporarily ejected server, when auto_eject_host is set to true. (default -1)
+  -telemetry_path string
+        Prometheus: Telemetry path (default "/metrics")
   -timeout int
         Twemproxy: The timeout value in msec that we wait for to establish a connection to the server or receive a response from a server. (default -1)
   -token string
