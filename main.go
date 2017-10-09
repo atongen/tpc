@@ -60,8 +60,6 @@ var (
 
 func init() {
 	prometheus.MustRegister(pmessagesTotal)
-	prometheus.MustRegister(parseErrorsTotal)
-	prometheus.MustRegister(configErrorsTotal)
 }
 
 func versionStr() string {

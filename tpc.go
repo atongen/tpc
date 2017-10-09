@@ -28,8 +28,6 @@ var (
 	slackChannel   string
 	slackUsername  string
 	slackIconEmoji string
-
-	alertChannels = []string{"+switch-master", "+odown", "-odown"}
 )
 
 // metrics
@@ -38,18 +36,8 @@ var (
 		Name: "tpc_pmessages_total",
 		Help: "Pub/sub messages received from sentinel",
 	},
-		[]string{"instance_type", "channel"},
+		[]string{"status", "channel"},
 	)
-
-	parseErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "tpc_parse_errors_total",
-		Help: "Erros while parsing messages received from sentinel",
-	})
-
-	configErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "tpc_config_errors_total",
-		Help: "Erros while parsing messages received from sentinel",
-	})
 )
 
 const (
@@ -380,30 +368,26 @@ func ConfigWriter(config *Config) {
 
 func HandlePMessage(msg redis.PMessage, config *Config) {
 	// log all messages
-	instanceDetails, err := ParseInstanceDetails(string(msg.Data))
-	if err != nil {
-		logger.Printf("%s: %s", msg.Channel, err)
-		parseErrorsTotal.Inc()
-	} else {
-		logger.Printf("%s: %s", msg.Channel, instanceDetails)
-		pmessagesTotal.WithLabelValues(instanceDetails.InstanceType, msg.Channel).Inc()
-	}
+	logger.Printf("%s: %s\n", msg.Channel, msg.Data)
 
-	// alert if from certain channels
-	if strSliceContains(alertChannels, msg.Channel) {
-		PMessageAlert(config, msg)
-	}
-
-	// handle switch master
 	if msg.Channel == "+switch-master" {
 		switchMaster, err := ParseSwitchMaster(string(msg.Data))
+
 		if err != nil {
-			msg := fmt.Sprintf("Error parsing +switch-master msg: %s", err)
-			ConfigAlert(config, msg)
-			logger.Println(msg)
+			errMsg := fmt.Sprintf("Error parsing +switch-master: %s", err)
+			logger.Printf("%s: %s", msg.Channel, errMsg)
+			ConfigAlert(config, errMsg)
+			pmessagesTotal.WithLabelValues("error", msg.Channel).Inc()
 		} else {
 			HandleSwitchMaster(switchMaster, config)
+			PMessageAlert(config, msg)
+			pmessagesTotal.WithLabelValues("ok", msg.Channel).Inc()
 		}
+	} else {
+		if msg.Channel == "+odown" || msg.Channel == "-odown" {
+			PMessageAlert(config, msg)
+		}
+		pmessagesTotal.WithLabelValues("ok", msg.Channel).Inc()
 	}
 }
 
@@ -628,7 +612,7 @@ func ListenCluster(addrs []string, config *Config) {
 		if err != nil {
 			msg := fmt.Sprintf("Sentinel (%s) error: %s", addr, err.Error())
 			logger.Println(msg)
-			configErrorsTotal.Inc()
+			pmessagesTotal.WithLabelValues("error", "sentinel").Inc()
 			ConfigAlert(config, msg)
 		}
 		retries += 1
