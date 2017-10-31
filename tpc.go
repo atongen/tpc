@@ -289,7 +289,12 @@ func WriteConfig(config *Config) error {
 
 	backupFile := ""
 	if config.Backup != "" {
-		backupFile, err = CreateBackupFile(config.Backup)
+		err = os.MkdirAll(config.Backup, os.ModePerm)
+		if err != nil {
+			return err
+		}
+
+		backupFile = filepath.Join(config.Backup, BuildFileName())
 		if err != nil {
 			return err
 		}
@@ -317,21 +322,6 @@ func CleanConfig(r io.Reader) ([]byte, error) {
 		return []byte{}, err
 	}
 	return []byte(strings.Join(newContent, "\n")), nil
-}
-
-func CreateBackupFile(path string) (string, error) {
-	filename := filepath.Join(path, BuildFileName())
-	_, err := os.Stat(filename)
-
-	if os.IsNotExist(err) {
-		fd, err := os.Create(filename)
-		if err != nil {
-			return "", err
-		}
-		defer fd.Close()
-	}
-
-	return filename, nil
 }
 
 func BuildFileName() string {
