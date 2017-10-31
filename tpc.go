@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/nlopes/slack"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"time"
 )
 
 var (
@@ -95,6 +97,7 @@ func (s Servers) Swap(i, j int) {
 
 type Config struct {
 	Out           string
+	Backup        string
 	Cmd           string
 	MasterPattern string
 	WriteCh       chan bool
@@ -279,21 +282,24 @@ func WriteConfig(config *Config) error {
 		return err
 	}
 
-	var w io.Writer
+	err = WriteFile(config.Out, clean)
+	if err != nil {
+		return err
+	}
 
-	if config.Out == "" {
-		w = os.Stdout
-	} else {
-		logger.Printf("Writing to outfile: %s", config.Out)
-		out, err := os.OpenFile(config.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	backupFile := ""
+	if config.Backup != "" {
+		backupFile, err = CreateBackupFile(config.Backup)
 		if err != nil {
 			return err
 		}
-		defer out.Close()
-		w = out
 	}
 
-	w.Write(clean)
+	err = WriteFile(backupFile, clean)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -311,6 +317,44 @@ func CleanConfig(r io.Reader) ([]byte, error) {
 		return []byte{}, err
 	}
 	return []byte(strings.Join(newContent, "\n")), nil
+}
+
+func CreateBackupFile(path string) (string, error) {
+	filename := filepath.Join(path, BuildFileName())
+	_, err := os.Stat(filename)
+
+	if os.IsNotExist(err) {
+		fd, err := os.Create(filename)
+		if err != nil {
+			return "", err
+		}
+		defer fd.Close()
+	}
+
+	return filename, nil
+}
+
+func BuildFileName() string {
+	return "backup-" + time.Now().Format("20060102150405")
+}
+
+func WriteFile(filename string, content []byte) error {
+	var w io.Writer
+
+	if filename == "" {
+		w = os.Stdout
+	} else {
+		logger.Printf("Writing to file: %s", filename)
+		f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w = f
+	}
+
+	w.Write(content)
+	return nil
 }
 
 func ExecCmd(config *Config) error {
@@ -566,7 +610,6 @@ func ListenSentinel(addr string, config *Config) error {
 			logger.Printf("%s: %s %d", v.Channel, v.Kind, v.Count)
 		case error:
 			logger.Printf("Error from sentinel pubsub: %s", v)
-			break
 		default:
 			if conn.Err() != nil {
 				err = conn.Err()

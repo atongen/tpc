@@ -30,12 +30,15 @@ func NewTestSlackClient() SlackClient {
 }
 
 func NewTestConfig(t *testing.T) *Config {
-	tmpfile, err := ioutil.TempFile("", "tpc-out")
+	tmpDir := "/tmp/tpc-test-backup"
+	os.MkdirAll(tmpDir, os.ModePerm)
+	tmpfile, err := ioutil.TempFile(tmpDir, "tpc-out")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &Config{
 		Out:           tmpfile.Name(),
+		Backup:        tmpDir,
 		Cmd:           "echo mycmd",
 		MasterPattern: "",
 		WriteCh:       make(chan bool),
@@ -166,7 +169,7 @@ func TestWriteConfig(t *testing.T) {
 	SetLoggerWriter(&out)
 
 	config := NewTestConfig(t)
-	defer os.Remove(config.Out)
+	defer os.RemoveAll(config.Backup)
 
 	config.Servers = append(config.Servers,
 		&Server{"ZZZ", "1.2.3.4", "8000"},
@@ -177,9 +180,9 @@ func TestWriteConfig(t *testing.T) {
 		t.Errorf("WriteConfig error: %s\n", err)
 	}
 
-	content, err := ioutil.ReadFile(config.Out)
+	files, err := ioutil.ReadDir(config.Backup)
 	if err != nil {
-		t.Errorf("Error reading config out file: %s\n", err)
+		t.Errorf("ReadDir error: %s\n", err)
 	}
 
 	expected := `tpc_test:
@@ -201,12 +204,28 @@ func TestWriteConfig(t *testing.T) {
     - 1.2.3.4:8000:1 ZZZ
 `
 
-	if string(content) != expected {
-		t.Errorf("WriteConfig expected '%s' but got '%s'\n", expected, content)
+	fileCount := 0
+	for _, f := range files {
+		content, err := ioutil.ReadFile(config.Backup + "/" + f.Name())
+		if err != nil {
+			t.Errorf("Error reading file %s: %s\n", f.Name(), err)
+		}
+
+		if string(content) != expected {
+			t.Errorf("WriteConfig expected '%s' but got '%s'\n", expected, content)
+		}
+
+		fileCount += 1
 	}
 
+	if fileCount != 2 {
+		t.Errorf("WriteConfig expected %d files but got %d", 2, fileCount)
+	}
+
+	suffixes := strings.Split(out.String(), "/")
+	suffix := suffixes[len(suffixes)-1]
 	expect := []string{
-		"Writing to outfile: /tmp/tpc-out",
+		"Writing to file: /tmp/tpc-test-backup/" + suffix,
 	}
 
 	ExpectResult(t, out.String(), expect)
@@ -217,7 +236,7 @@ func TestExecCmd(t *testing.T) {
 	SetLoggerWriter(&out)
 
 	config := NewTestConfig(t)
-	defer os.Remove(config.Out)
+	defer os.RemoveAll(config.Backup)
 
 	ExecCmd(config)
 
@@ -234,7 +253,7 @@ func TestDoConfigUpdate(t *testing.T) {
 	SetLoggerWriter(&out)
 
 	config := NewTestConfig(t)
-	defer os.Remove(config.Out)
+	defer os.RemoveAll(config.Backup)
 
 	config.Servers = append(config.Servers,
 		&Server{"ZZZ", "1.2.3.4", "8000"},
@@ -255,7 +274,7 @@ func TestDoConfigUpdateMulti(t *testing.T) {
 	SetLoggerWriter(&out)
 
 	config := NewTestConfig(t)
-	defer os.Remove(config.Out)
+	defer os.RemoveAll(config.Backup)
 
 	config.Servers = append(config.Servers,
 		&Server{"ZZZ", "1.2.3.4", "8000"},
@@ -357,7 +376,7 @@ func TestHandleSwitchMaster(t *testing.T) {
 	SetLoggerWriter(&out)
 
 	config := NewTestConfig(t)
-	defer os.Remove(config.Out)
+	defer os.RemoveAll(config.Backup)
 
 	config.Servers = append(config.Servers,
 		&Server{"node-01", "1.2.3.4", "8000"},
@@ -397,7 +416,7 @@ func TestHandleSwitchMasterPattern(t *testing.T) {
 
 	config := NewTestConfig(t)
 	config.MasterPattern = "node-"
-	defer os.Remove(config.Out)
+	defer os.RemoveAll(config.Backup)
 
 	config.Servers = append(config.Servers,
 		&Server{"node-01", "1.2.3.4", "8000"},
@@ -450,7 +469,7 @@ func TestSetConfigServers(t *testing.T) {
 	SetLoggerWriter(&out)
 
 	config := NewTestConfig(t)
-	defer os.Remove(config.Out)
+	defer os.RemoveAll(config.Backup)
 
 	err := SetConfigServers(conn, config)
 	if err != nil {
@@ -501,7 +520,7 @@ func TestSetConfigServersMasterPattern(t *testing.T) {
 
 	config := NewTestConfig(t)
 	config.MasterPattern = "node-"
-	defer os.Remove(config.Out)
+	defer os.RemoveAll(config.Backup)
 
 	err := SetConfigServers(conn, config)
 	if err != nil {

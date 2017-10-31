@@ -26,6 +26,7 @@ var (
 	sentinelsFlag     = flag.String("sentinels", "", "Process: CSV of host:port to redis sentinels")
 	logFlag           = flag.String("log", "", "Process: Path to log file, will write to STDOUT if empty")
 	outFlag           = flag.String("out", "", "Process: File to write configuration, will write to STDOUT if empty")
+	backupFlag        = flag.String("backup", "", "Process: Path to directory for storing configuration history, will write to STDOUT if empty")
 	cmdFlag           = flag.String("cmd", "", "Process: Command to execute after master failover")
 	masterPatternFlag = flag.String("master_pattern", "", "Process: If provided, will filter master names from sentinel based on pattern")
 
@@ -107,6 +108,7 @@ func main() {
 
 	config := Config{
 		Out:           *outFlag,
+		Backup:        *backupFlag,
 		Cmd:           *cmdFlag,
 		MasterPattern: *masterPatternFlag,
 		WriteCh:       make(chan bool, 8),

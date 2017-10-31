@@ -1,6 +1,6 @@
 # tpc
 
-tpc roughtly stands for Twemproxy Configurator
+tpc roughly stands for Twemproxy Configurator
 
 Listens to a cluster of redis sentinel servers via pubsub.
 Rewrites twemproxy config file and executes twemproxy reload command when
@@ -80,6 +80,8 @@ Usage of tpc:
         Twemproxy: Name of redis pool (default "redis")
   -out string
         Process: File to write configuration, will write to STDOUT if empty
+  -backup string
+        Process: Directory to write backup files, will write to STDOUT if empty
   -port int
         Twemproxy: Port (default 9000)
   -preconnect
