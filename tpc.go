@@ -591,7 +591,7 @@ func ListenSentinel(addr string, config *Config) error {
 
 	config.WriteCh <- true
 
-	psc := redis.PubSubConn{conn}
+	psc := redis.PubSubConn{Conn: conn}
 	defer psc.Close()
 
 	psc.PSubscribe("*")
@@ -638,7 +638,7 @@ func ListenCluster(addrs []string, config *Config) {
 
 	for {
 		if retries >= maxRetries {
-			logger.Printf("Maximum retry count for all sentinel servers reached")
+			logger.Print("Maximum retry count for all sentinel servers reached")
 			break
 		}
 
