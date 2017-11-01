@@ -40,6 +40,10 @@ var (
 	},
 		[]string{"status", "channel"},
 	)
+	backupErrorTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "tpc_backup_error_total",
+		Help: "Unsuccessful backup attempts",
+	})
 )
 
 const (
@@ -302,7 +306,8 @@ func WriteConfig(config *Config) error {
 
 	err = WriteFile(backupFile, clean)
 	if err != nil {
-		return err
+		backupErrorTotal.Add(1)
+		logger.Printf("Error backing up config: %s", err)
 	}
 
 	return nil
