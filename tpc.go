@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/nlopes/slack"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"time"
 )
 
 var (
@@ -38,6 +40,10 @@ var (
 	},
 		[]string{"status", "channel"},
 	)
+	backupErrorTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "tpc_backup_error_total",
+		Help: "Unsuccessful backup attempts",
+	})
 )
 
 const (
@@ -95,6 +101,7 @@ func (s Servers) Swap(i, j int) {
 
 type Config struct {
 	Out           string
+	Backup        string
 	Cmd           string
 	MasterPattern string
 	WriteCh       chan bool
@@ -279,21 +286,30 @@ func WriteConfig(config *Config) error {
 		return err
 	}
 
-	var w io.Writer
+	err = WriteFile(config.Out, clean)
+	if err != nil {
+		return err
+	}
 
-	if config.Out == "" {
-		w = os.Stdout
-	} else {
-		logger.Printf("Writing to outfile: %s", config.Out)
-		out, err := os.OpenFile(config.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	backupFile := ""
+	if config.Backup != "" {
+		err = os.MkdirAll(config.Backup, os.ModePerm)
 		if err != nil {
 			return err
 		}
-		defer out.Close()
-		w = out
+
+		backupFile = filepath.Join(config.Backup, BuildFileName())
+		if err != nil {
+			return err
+		}
 	}
 
-	w.Write(clean)
+	err = WriteFile(backupFile, clean)
+	if err != nil {
+		backupErrorTotal.Add(1)
+		logger.Printf("Error backing up config: %s", err)
+	}
+
 	return nil
 }
 
@@ -311,6 +327,29 @@ func CleanConfig(r io.Reader) ([]byte, error) {
 		return []byte{}, err
 	}
 	return []byte(strings.Join(newContent, "\n")), nil
+}
+
+func BuildFileName() string {
+	return "backup-" + time.Now().Format("20060102150405")
+}
+
+func WriteFile(filename string, content []byte) error {
+	var w io.Writer
+
+	if filename == "" {
+		w = os.Stdout
+	} else {
+		logger.Printf("Writing to file: %s", filename)
+		f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w = f
+	}
+
+	w.Write(content)
+	return nil
 }
 
 func ExecCmd(config *Config) error {
@@ -552,7 +591,7 @@ func ListenSentinel(addr string, config *Config) error {
 
 	config.WriteCh <- true
 
-	psc := redis.PubSubConn{conn}
+	psc := redis.PubSubConn{Conn: conn}
 	defer psc.Close()
 
 	psc.PSubscribe("*")
@@ -600,7 +639,7 @@ func ListenCluster(addrs []string, config *Config) {
 
 	for {
 		if retries >= maxRetries {
-			logger.Printf("Maximum retry count for all sentinel servers reached")
+			logger.Print("Maximum retry count for all sentinel servers reached")
 			break
 		}
 
