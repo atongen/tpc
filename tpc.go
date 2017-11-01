@@ -605,6 +605,7 @@ func ListenSentinel(addr string, config *Config) error {
 			logger.Printf("%s: %s %d", v.Channel, v.Kind, v.Count)
 		case error:
 			logger.Printf("Error from sentinel pubsub: %s", v)
+			break
 		default:
 			if conn.Err() != nil {
 				err = conn.Err()
