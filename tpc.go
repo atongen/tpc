@@ -295,13 +295,11 @@ func WriteConfig(config *Config) error {
 	if config.Backup != "" {
 		err = os.MkdirAll(config.Backup, os.ModePerm)
 		if err != nil {
-			return err
+			backupErrorTotal.Add(1)
+			logger.Printf("Error backing up config: %s", err)
 		}
 
 		backupFile = filepath.Join(config.Backup, BuildFileName())
-		if err != nil {
-			return err
-		}
 	}
 
 	err = WriteFile(backupFile, clean)
