@@ -16,11 +16,12 @@ import (
 	"sort"
 	"strings"
 
+	"time"
+
 	"github.com/garyburd/redigo/redis"
 	"github.com/nlopes/slack"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"time"
 )
 
 var (
@@ -129,37 +130,6 @@ type Config struct {
 	TelemetryPath string
 }
 
-type InstanceDetails struct {
-	InstanceType string
-	Name         string
-	Ip           string
-	Port         string
-	MasterName   string
-	MasterIp     string
-	MasterPort   string
-	Description  string
-}
-
-func (i *InstanceDetails) String() string {
-	if i.InstanceType == "master" {
-		if i.Description != "" {
-			return fmt.Sprintf("master %s %s:%s (%s)",
-				i.Name, i.Ip, i.Port, i.Description)
-		} else {
-			return fmt.Sprintf("master %s %s:%s",
-				i.Name, i.Ip, i.Port)
-		}
-	} else {
-		if i.Description != "" {
-			return fmt.Sprintf("%s %s %s:%s, master: %s %s:%s (%s)",
-				i.InstanceType, i.Name, i.Ip, i.Port, i.MasterName, i.MasterIp, i.MasterPort, i.Description)
-		} else {
-			return fmt.Sprintf("%s %s %s:%s, master: %s %s:%s",
-				i.InstanceType, i.Name, i.Ip, i.Port, i.MasterName, i.MasterIp, i.MasterPort)
-		}
-	}
-}
-
 type SwitchMaster struct {
 	MasterName string
 	OldIp      string
@@ -219,6 +189,7 @@ func SetSlack(token, channel, username, iconEmoji string) error {
 	return err
 }
 
+// Alertf sends an alert message to slack
 func Alertf(format string, a ...interface{}) (int, error) {
 	if slackClient != nil {
 		msg := fmt.Sprintf(format, a...)
@@ -240,11 +211,13 @@ func Alertf(format string, a ...interface{}) (int, error) {
 	return 0, nil
 }
 
+// ConfigAlert sends an alert to slack referencing this application's configuration
 func ConfigAlert(config *Config, msg string) (int, error) {
 	appName := path.Base(os.Args[0])
 	return Alertf("%s %s: %s", appName, config.Name, msg)
 }
 
+// PMessageAlert sends an alert to slack referencing a pub/sub message from redis sentinel
 func PMessageAlert(config *Config, msg redis.PMessage) (int, error) {
 	return ConfigAlert(config, fmt.Sprintf("%s %s", msg.Channel, msg.Data))
 }
@@ -404,10 +377,7 @@ func ConfigWriter(config *Config) {
 }
 
 func HandlePMessage(msg redis.PMessage, config *Config) {
-	// log all messages
-	logger.Printf("%s: %s\n", msg.Channel, msg.Data)
-
-	if msg.Channel == "+switch-master" {
+	if strings.Contains(msg.Channel, "switch-master") {
 		switchMaster, err := ParseSwitchMaster(string(msg.Data))
 
 		if err != nil {
@@ -456,66 +426,6 @@ func HandleSwitchMaster(switchMaster *SwitchMaster, config *Config) {
 
 	config.Servers = newServers
 	config.WriteCh <- true
-}
-
-func ParseInstanceDetails(data string) (*InstanceDetails, error) {
-	splitData := strings.Split(data, " @ ")
-	switch len(splitData) {
-	default:
-		return nil, fmt.Errorf("Invalid instance details: '%s'", data)
-	case 1:
-		return ParseMasterInstanceDetails(splitData[0])
-	case 2:
-		return ParseNonMasterInstanceDetails(splitData[0], splitData[1])
-	}
-}
-
-func ParseMasterInstanceDetails(data string) (*InstanceDetails, error) {
-	splitData := strings.Split(data, " ")
-	if len(splitData) < 4 || splitData[0] != "master" {
-		return nil, fmt.Errorf("Invalid master instance details: '%s'", data)
-	}
-
-	instanceDetails := &InstanceDetails{
-		InstanceType: splitData[0],
-		Name:         splitData[1],
-		Ip:           splitData[2],
-		Port:         splitData[3],
-	}
-
-	if len(splitData) > 4 {
-		instanceDetails.Description = strings.Join(splitData[4:], " ")
-	}
-
-	return instanceDetails, nil
-}
-
-func ParseNonMasterInstanceDetails(serverData, masterData string) (*InstanceDetails, error) {
-	splitServerData := strings.Split(serverData, " ")
-	if len(splitServerData) != 4 || splitServerData[0] == "master" {
-		return nil, fmt.Errorf("Invalid server instance details: '%s'", serverData)
-	}
-
-	splitMasterData := strings.Split(masterData, " ")
-	if len(splitMasterData) < 3 {
-		return nil, fmt.Errorf("Invalid master instance details for non-master: '%s'", masterData)
-	}
-
-	instanceDetails := &InstanceDetails{
-		InstanceType: splitServerData[0],
-		Name:         splitServerData[1],
-		Ip:           splitServerData[2],
-		Port:         splitServerData[3],
-		MasterName:   splitMasterData[0],
-		MasterIp:     splitMasterData[1],
-		MasterPort:   splitMasterData[2],
-	}
-
-	if len(splitMasterData) > 3 {
-		instanceDetails.Description = strings.Join(splitMasterData[3:], " ")
-	}
-
-	return instanceDetails, nil
 }
 
 func ParseSwitchMaster(data string) (*SwitchMaster, error) {
@@ -598,6 +508,8 @@ func ListenSentinel(addr string, config *Config) error {
 		case redis.Message:
 			logger.Printf("%s: message: %s", v.Channel, v.Data)
 		case redis.PMessage:
+			// log all messages
+			logger.Printf("%s: %s", v.Channel, v.Data)
 			HandlePMessage(v, config)
 		case redis.Subscription:
 			logger.Printf("%s: %s %d", v.Channel, v.Kind, v.Count)
@@ -652,7 +564,7 @@ func ListenCluster(addrs []string, config *Config) {
 			pmessagesTotal.WithLabelValues("error", "sentinel").Inc()
 			ConfigAlert(config, msg)
 		}
-		retries += 1
+		retries++
 	}
 
 	logger.Println("Goodbye!")
